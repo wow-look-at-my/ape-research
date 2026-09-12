@@ -89,9 +89,23 @@ jobs:
           path: out
       - name: Host
         run: uname -a; ldd --version | head -1; head -2 /etc/os-release; chmod +x out/probe.com
-      - uses: wow-look-at-my/dats@master
+      # dats ships as an APE, which the shell path cannot boot on 22.04 or arm64. The loader under test boots it.
+      - uses: actions/checkout@v4
         with:
-          tests: tests/linux-${{ matrix.arch }}.dats
+          repository: wow-look-at-my/dats
+          path: .dats
+      - name: Sandbox backend for dats
+        run: |
+          bash .dats/.github/scripts/install-sandbox-backend.sh
+          bash .dats/.github/scripts/allow-unprivileged-userns.sh
+      - id: dats
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+        with:
+          project: dats
+      - name: Loader suite (dats, booted through the loader)
+        run: |
+          "$APELD" "${{ steps.dats.outputs.path }}" version
+          "$APELD" "${{ steps.dats.outputs.path }}" -v test tests/linux-${{ matrix.arch }}.dats
       - name: Timing, stock shell versus loader
         run: |
           time sh out/probe.com hello >/dev/null || true
