@@ -98,10 +98,13 @@ jobs:
         run: |
           bash .dats/.github/scripts/install-sandbox-backend.sh
           bash .dats/.github/scripts/allow-unprivileged-userns.sh
+      # The amd64 slot is a fat APE that also holds the arm64 payload; buildhost has no linux/arm64 slot for dats.
       - id: dats
         uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
         with:
           project: dats
+          os: linux
+          arch: amd64
       - name: Loader suite (dats, booted through the loader)
         run: |
           "$APELD" "${{ steps.dats.outputs.path }}" version
