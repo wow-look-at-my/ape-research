@@ -27,7 +27,7 @@ jobs:
         run: |
           sudo apt-get install -y -q lld-18 llvm-18 >/dev/null
           cp -r bin "$RUNNER_TEMP/committed"
-          LLD=ld64.lld-18 ./build.sh
+          LLD=ld64.lld-18 LLDLINK=lld-link-18 DLLTOOL=llvm-dlltool-18 STRIP=llvm-strip-18 ./build.sh
       - name: Committed binaries match the source
         run: |
           for f in bin/*; do

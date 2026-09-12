@@ -8,10 +8,13 @@ mkdir -p bin
 
 COMMON="-Os -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -Wall"
 
+# The linker script packs everything into one PT_LOAD; the section header
+# table is then stripped, since a static executable does not need it.
 for t in x86_64:amd64 aarch64:arm64; do
 	$ZIG cc -target "${t%%:*}-linux-musl" $COMMON -nostdlib -ffreestanding -static -fno-pic -fno-pie \
-		-Wl,--gc-sections -Wl,--build-id=none -Wl,-z,norelro -s \
+		-Wl,--gc-sections -Wl,--build-id=none -Wl,-z,norelro -Wl,-T,linux/apeld.ld -s \
 		-o "bin/apeld-linux-${t##*:}" linux/apeld.c
+	${STRIP:-llvm-strip} --strip-sections "bin/apeld-linux-${t##*:}"
 done
 
 # zig compiles the object; ld64.lld links it, because zig's own Mach-O linker
@@ -25,11 +28,13 @@ ${LLD:-ld64.lld} -arch arm64 -platform_version macos 12.0 12.0 -L"$ZIGLIB/libc/d
 	-o bin/apeld-darwin-arm64 bin/apeld-darwin.o
 rm -f bin/apeld-darwin.o
 
-# zig drops its bundled windows headers under -nostdlib, so compile and link apart.
+# zig compiles the object; lld-link links it against an import library made
+# from windows/kernel32.def. zig's own link always adds a PDB debug record,
+# which is not reproducible. /Brepro derives the timestamp from the content.
 $ZIG cc -target x86_64-windows-gnu $COMMON -c -o bin/apeld-windows.obj windows/apeld.c
-# /Brepro derives the PE timestamp from the content, so the bytes are reproducible.
-$ZIG cc -target x86_64-windows-gnu -nostdlib -Wl,--entry=start -Wl,--subsystem,console -Wl,--gc-sections -Wl,/Brepro \
-	-o bin/apeld-windows-amd64.exe bin/apeld-windows.obj -lkernel32
-rm -f bin/apeld-windows.obj bin/*.pdb
+${DLLTOOL:-llvm-dlltool} -m i386:x86-64 -d windows/kernel32.def -l bin/kernel32.lib
+${LLDLINK:-lld-link} /entry:start /subsystem:console /nodefaultlib /Brepro /opt:ref \
+	/filealign:16 /merge:.rdata=.text /out:bin/apeld-windows-amd64.exe bin/apeld-windows.obj bin/kernel32.lib
+rm -f bin/apeld-windows.obj bin/kernel32.lib
 
 ls -l bin
