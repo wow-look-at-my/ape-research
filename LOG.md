@@ -77,3 +77,21 @@ The loaders are committed. CI rebuilds them and fails on a byte difference. The 
 The assertions started as shell steps in the workflow. That died on `bash -e` when a test expected exit `3`. They now live in `tests/*.dats`, one file per platform. dats patterns are substrings, not regular expressions.
 
 dats itself ships as an APE. Ubuntu 22.04 cannot exec it (no binfmt fallback) and the arm64 runners refuse it through the shell. On Linux the workflow therefore boots dats through the memfd loader. The loader runs the test runner that tests the loader.
+
+## Timings from the green run
+
+Wall time of `probe.com hello`, output discarded. The shell columns are the first run, which stages the copy, and a second run with the copy present. On arm64 Linux the shell refuses the host at once.
+
+| runner | shell, cold | shell, warm | loader |
+|---|---|---|---|
+| ubuntu-22.04 amd64 | 17 ms | 8 ms | 4 ms |
+| ubuntu-24.04 amd64 | 11 ms | 5 ms | 3 ms |
+| ubuntu-22.04-arm | refused | refused | 3 ms |
+| ubuntu-24.04-arm | refused | refused | 3 ms |
+| macos-14 | 14 ms | 12 ms | 2 ms |
+| macos-15 | 15 ms | 14 ms | 4 ms |
+| macos-latest | 31 ms | 28 ms | 5 ms |
+
+On Windows the stock PE boot and the in-memory loader are one column each, since nothing is staged: 23 to 26 ms against 7 to 9 ms, and the loader wins because it never maps the file as an image.
+
+The macOS shell numbers are with the compiled `ape-m1` already cached under `/tmp`. The first run on a fresh machine also pays for `cc`, about a second on these runners.
