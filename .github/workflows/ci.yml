@@ -59,7 +59,8 @@ jobs:
           export PATH="$RUNNER_TEMP/go/bin:$PATH"
           go version
           mkdir -p out
-          (cd testdata/probe && GOOS=cosmo go build -o ../../out/probe.com .)
+          # The fork refuses a CI build without its shared cache; this build is tiny, so use the disk cache.
+          (cd testdata/probe && env -u CI GOOS=cosmo go build -o ../../out/probe.com .)
           ls -l out
       - uses: wow-look-at-my/actions@cache-upload#latest
         with:
