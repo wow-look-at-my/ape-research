@@ -1,0 +1,187 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+env:
+  ZIG_VERSION: 0.16.0
+  GOSMO_URL: https://dl.pazer.build/gosmopolitan?branch=master
+
+jobs:
+  # Builds the loaders, checks the committed binaries, builds the probe APE, hands both to the test jobs.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zig
+        run: |
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" | tar -xJ -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - name: Build loaders
+        run: |
+          sudo apt-get install -y -q lld-18 llvm-18 >/dev/null
+          cp -r bin "$RUNNER_TEMP/committed"
+          LLD=ld64.lld-18 LLDLINK=lld-link-18 DLLTOOL=llvm-dlltool-18 STRIP=llvm-strip-18 ./build.sh
+      - name: Committed binaries match the source
+        run: |
+          for f in bin/*; do
+            cmp "$f" "$RUNNER_TEMP/committed/$(basename "$f")" && continue
+            echo "== $f differs from the committed copy (offset, committed byte, built byte):"
+            cmp -l "$RUNNER_TEMP/committed/$(basename "$f")" "$f" | head -40
+            bad=1
+          done
+          test -z "$bad"
+      - name: Loaders are static
+        run: |
+          set -x
+          for f in bin/apeld-linux-*; do
+            readelf -lW "$f" | grep -q INTERP && { echo "$f has an interpreter"; exit 1; }
+            readelf -dW "$f" | grep -q 'Dynamic section' && { echo "$f has a dynamic section"; exit 1; }
+          done
+          llvm-objdump-18 -p bin/apeld-windows-amd64.exe | grep 'DLL Name' | grep -vi 'kernel32.dll' && exit 1
+          llvm-objdump-18 --macho --private-headers bin/apeld-darwin-arm64 | grep -A2 LC_LOAD_DYLIB | grep 'name ' | grep -v libSystem && exit 1
+          true
+      - name: Size table
+        run: |
+          {
+            echo '| loader | bytes |'; echo '|---|---|'
+            for f in bin/*; do printf '| %s | %s |\n' "$(basename "$f")" "$(stat -c %s "$f")"; done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      # Fetch secrets from a self-hosted secret server using GitHub Actions OIDC (GO_BUILDCACHE_CONFIG).
+      - uses: wow-look-at-my/actions@secret-server#latest
+      - name: Build the probe APE
+        run: |
+          curl -fL --compressed "${GOSMO_URL}&os=linux&arch=amd64" | tar -xz -C "$RUNNER_TEMP"
+          export PATH="$RUNNER_TEMP/go/bin:$PATH"
+          go version
+          mkdir -p out
+          (cd testdata/probe && GOOS=cosmo go build -o ../../out/probe.com .)
+          ls -l out
+      - uses: wow-look-at-my/actions@cache-upload#latest
+        with:
+          name: apes
+          path: out
+
+  linux:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-22.04, arch: amd64}
+          - {os: ubuntu-24.04, arch: amd64}
+          - {os: ubuntu-22.04-arm, arch: arm64}
+          - {os: ubuntu-24.04-arm, arch: arm64}
+    runs-on: ${{ matrix.os }}
+    env:
+      APELD: bin/apeld-linux-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: apes
+          path: out
+      - name: Host
+        run: uname -a; ldd --version | head -1; head -2 /etc/os-release; chmod +x out/probe.com
+      # dats ships as an APE, which the shell path cannot boot on 22.04 or arm64. The loader under test boots it.
+      - uses: actions/checkout@v4
+        with:
+          repository: wow-look-at-my/dats
+          path: .dats
+      - name: Sandbox backend for dats
+        run: |
+          bash .dats/.github/scripts/install-sandbox-backend.sh
+          bash .dats/.github/scripts/allow-unprivileged-userns.sh
+      # The amd64 slot is a fat APE that also holds the arm64 payload; buildhost has no linux/arm64 slot for dats.
+      - id: dats
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+        with:
+          project: dats
+          os: linux
+          arch: amd64
+      - name: Loader suite (dats, booted through the loader)
+        run: |
+          "$APELD" "${{ steps.dats.outputs.path }}" version
+          "$APELD" "${{ steps.dats.outputs.path }}" -v test tests/linux-${{ matrix.arch }}.dats
+      - name: Timing, stock shell versus loader
+        run: |
+          time sh out/probe.com hello >/dev/null || true
+          time sh out/probe.com hello >/dev/null || true
+          time "$APELD" out/probe.com hello >/dev/null
+
+  macos:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: apes
+          path: out
+      - name: Host, linkage and signature
+        run: |
+          uname -a; sw_vers
+          chmod +x out/probe.com bin/apeld-darwin-arm64
+          otool -L bin/apeld-darwin-arm64
+          otool -L bin/apeld-darwin-arm64 | tail -n +2 | grep -v libSystem && exit 1
+          codesign -dv bin/apeld-darwin-arm64
+      - uses: wow-look-at-my/dats@master
+        with:
+          tests: tests/darwin-arm64.dats
+      - name: Timing, stock shell versus loader
+        run: |
+          time sh out/probe.com hello >/dev/null || true
+          time sh out/probe.com hello >/dev/null || true
+          time bin/apeld-darwin-arm64 out/probe.com hello >/dev/null
+      - name: Same source built by the host clang
+        run: |
+          clang -Os -o apeld-host darwin/apeld.c
+          ls -l apeld-host
+          ./apeld-host out/probe.com hello | grep -q 'args=\["out/probe.com" "hello"\]'
+
+  windows:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wow-look-at-my/actions@cache-download#latest
+        with:
+          name: apes
+          path: out
+      - name: Host
+        shell: pwsh
+        run: (Get-CimInstance Win32_OperatingSystem).Caption; [Environment]::OSVersion.VersionString
+      # The dats action runs inside WSL on NT, so the NT suite uses the NT dats binary instead.
+      - name: Download dats
+        id: dats
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+        with:
+          project: dats
+      - name: Loader suite (dats, on NT)
+        shell: pwsh
+        env:
+          DATS_BIN: ${{ steps.dats.outputs.path }}
+        run: |
+          Copy-Item $env:DATS_BIN "$env:RUNNER_TEMP\dats.exe"
+          & "$env:RUNNER_TEMP\dats.exe" -v --no-sandbox test tests/windows-amd64.dats
+          exit $LASTEXITCODE
+      - name: Timing, stock PE versus loader
+        shell: pwsh
+        run: |
+          foreach ($cmd in @({ & .\out\probe.com hello }, { & .\bin\apeld-windows-amd64.exe .\out\probe.com hello })) {
+            $sw = [Diagnostics.Stopwatch]::StartNew(); & $cmd | Out-Null; "$($sw.ElapsedMilliseconds) ms"
+          }

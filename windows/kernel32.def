@@ -1,0 +1,18 @@
+; The kernel32 entry points the loader imports. llvm-dlltool turns this
+; into the import library lld-link needs.
+LIBRARY KERNEL32.dll
+EXPORTS
+CloseHandle
+CreateFileW
+ExitProcess
+FlushInstructionCache
+GetCommandLineW
+GetCurrentProcess
+GetFileSizeEx
+GetProcAddress
+GetStdHandle
+LoadLibraryA
+ReadFile
+VirtualAlloc
+VirtualProtect
+WriteFile
