@@ -1,0 +1,5 @@
+args=["/tmp/apex/probe-arm64.com" "hello" "world"]
+exe="/tmp/apex/probe-arm64.com" exeErr=<nil>
+cwd="/tmp/apex"
+env=""
+goos=darwin goarch=arm64 ncpu=10
