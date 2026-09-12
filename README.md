@@ -26,7 +26,7 @@ apeld PROG.com [args...]
 |---|---|
 | apeld-linux-amd64 | 1384 |
 | apeld-linux-arm64 | 1488 |
-| apeld-darwin-arm64 | 54528 |
+| apeld-darwin-arm64 | 36928 |
 | apeld-windows-amd64.exe | 4608 |
 
 ## What the APE layout gives a native loader

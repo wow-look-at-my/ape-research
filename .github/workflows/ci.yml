@@ -24,19 +24,28 @@ jobs:
           curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" | tar -xJ -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
       - name: Build loaders
-        run: ./build.sh
+        run: |
+          sudo apt-get install -y -q lld-18 llvm-18 >/dev/null
+          cp -r bin "$RUNNER_TEMP/committed"
+          LLD=ld64.lld-18 ./build.sh
       - name: Committed binaries match the source
-        run: git diff --exit-code --stat bin/
+        run: |
+          for f in bin/*; do
+            cmp "$f" "$RUNNER_TEMP/committed/$(basename "$f")" && continue
+            echo "== $f differs from the committed copy (offset, committed byte, built byte):"
+            cmp -l "$RUNNER_TEMP/committed/$(basename "$f")" "$f" | head -40
+            bad=1
+          done
+          test -z "$bad"
       - name: Loaders are static
         run: |
-          sudo apt-get install -y -q llvm >/dev/null
           set -x
           for f in bin/apeld-linux-*; do
             readelf -lW "$f" | grep -q INTERP && { echo "$f has an interpreter"; exit 1; }
             readelf -dW "$f" | grep -q 'Dynamic section' && { echo "$f has a dynamic section"; exit 1; }
           done
-          llvm-objdump -p bin/apeld-windows-amd64.exe | grep 'DLL Name' | grep -vi 'kernel32.dll' && exit 1
-          llvm-objdump --macho -l bin/apeld-darwin-arm64 | grep -A2 LC_LOAD_DYLIB | grep 'name ' | grep -v libSystem && exit 1
+          llvm-objdump-18 -p bin/apeld-windows-amd64.exe | grep 'DLL Name' | grep -vi 'kernel32.dll' && exit 1
+          llvm-objdump-18 --macho --private-headers bin/apeld-darwin-arm64 | grep -A2 LC_LOAD_DYLIB | grep 'name ' | grep -v libSystem && exit 1
           true
       - name: Size table
         run: |

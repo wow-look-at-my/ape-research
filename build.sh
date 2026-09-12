@@ -14,8 +14,16 @@ for t in x86_64:amd64 aarch64:arm64; do
 		-o "bin/apeld-linux-${t##*:}" linux/apeld.c
 done
 
-$ZIG cc -target aarch64-macos $COMMON -Wl,-dead_strip -Wl,-S -Wl,-x \
-	-o bin/apeld-darwin-arm64 darwin/apeld.c
+# zig compiles the object; ld64.lld links it, because zig's own Mach-O linker
+# cannot merge __DATA_CONST into __DATA, and each segment costs a 16K page.
+# libSystem.tbd comes from zig's bundled darwin libc stubs.
+ZIGLIB=$($ZIG env 2>/dev/null | grep '"lib_dir"' | sed 's/.*: "\(.*\)".*/\1/')
+[ -n "$ZIGLIB" ] || ZIGLIB=$(dirname "$(command -v "$ZIG")")/lib
+$ZIG cc -target aarch64-macos $COMMON -c -o bin/apeld-darwin.o darwin/apeld.c
+${LLD:-ld64.lld} -arch arm64 -platform_version macos 12.0 12.0 -L"$ZIGLIB/libc/darwin" -lSystem \
+	-dead_strip -S -x -no_uuid -no_function_starts -no_data_const -fixup_chains \
+	-o bin/apeld-darwin-arm64 bin/apeld-darwin.o
+rm -f bin/apeld-darwin.o
 
 # zig drops its bundled windows headers under -nostdlib, so compile and link apart.
 $ZIG cc -target x86_64-windows-gnu $COMMON -c -o bin/apeld-windows.obj windows/apeld.c
