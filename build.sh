@@ -19,7 +19,8 @@ $ZIG cc -target aarch64-macos $COMMON -Wl,-dead_strip -Wl,-S -Wl,-x \
 
 # zig drops its bundled windows headers under -nostdlib, so compile and link apart.
 $ZIG cc -target x86_64-windows-gnu $COMMON -c -o bin/apeld-windows.obj windows/apeld.c
-$ZIG cc -target x86_64-windows-gnu -nostdlib -Wl,--entry=start -Wl,--subsystem,console -Wl,--gc-sections \
+# /Brepro derives the PE timestamp from the content, so the bytes are reproducible.
+$ZIG cc -target x86_64-windows-gnu -nostdlib -Wl,--entry=start -Wl,--subsystem,console -Wl,--gc-sections -Wl,/Brepro \
 	-o bin/apeld-windows-amd64.exe bin/apeld-windows.obj -lkernel32
 rm -f bin/apeld-windows.obj bin/*.pdb
 
