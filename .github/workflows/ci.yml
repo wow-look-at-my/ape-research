@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   actions: read
+  id-token: write
 
 env:
   ZIG_VERSION: 0.16.0
@@ -53,14 +54,16 @@ jobs:
             echo '| loader | bytes |'; echo '|---|---|'
             for f in bin/*; do printf '| %s | %s |\n' "$(basename "$f")" "$(stat -c %s "$f")"; done
           } | tee -a "$GITHUB_STEP_SUMMARY"
+      # Fetch secrets from a self-hosted secret server using GitHub Actions OIDC.
+      # GO_BUILDCACHE_CONFIG arrives this way; the fork's cmd/go needs it under CI.
+      - uses: wow-look-at-my/actions@secret-server#latest
       - name: Build the probe APE
         run: |
           curl -fL --compressed "${GOSMO_URL}&os=linux&arch=amd64" | tar -xz -C "$RUNNER_TEMP"
           export PATH="$RUNNER_TEMP/go/bin:$PATH"
           go version
           mkdir -p out
-          # The fork refuses a CI build without its shared cache; this build is tiny, so use the disk cache.
-          (cd testdata/probe && env -u CI GOOS=cosmo go build -o ../../out/probe.com .)
+          (cd testdata/probe && GOOS=cosmo go build -o ../../out/probe.com .)
           ls -l out
       - uses: wow-look-at-my/actions@cache-upload#latest
         with:
