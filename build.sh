@@ -34,7 +34,16 @@ rm -f bin/apeld-darwin.o
 $ZIG cc -target x86_64-windows-gnu $COMMON -c -o bin/apeld-windows.obj windows/apeld.c
 ${DLLTOOL:-llvm-dlltool} -m i386:x86-64 -d windows/kernel32.def -l bin/kernel32.lib
 ${LLDLINK:-lld-link} /entry:start /subsystem:console /nodefaultlib /Brepro /opt:ref \
-	/filealign:16 /merge:.rdata=.text /out:bin/apeld-windows-amd64.exe bin/apeld-windows.obj bin/kernel32.lib
+	/merge:.rdata=.text /out:bin/apeld-windows-amd64.exe bin/apeld-windows.obj bin/kernel32.lib
+# Experiment, not shipped: a tiny-PE layout with section and file alignment
+# both 512. Windows refuses a 16-byte file alignment outright; CI reports
+# whether this one runs. EXPERIMENTS names the directory it lands in.
+if [ -n "${EXPERIMENTS:-}" ]; then
+	mkdir -p "$EXPERIMENTS"
+	${LLDLINK:-lld-link} /entry:start /subsystem:console /nodefaultlib /Brepro /opt:ref \
+		/merge:.rdata=.text /align:512 /filealign:512 \
+		/out:"$EXPERIMENTS/apeld-windows-amd64-tiny.exe" bin/apeld-windows.obj bin/kernel32.lib
+fi
 rm -f bin/apeld-windows.obj bin/kernel32.lib
 
 ls -l bin

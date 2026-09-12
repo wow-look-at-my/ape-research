@@ -33,7 +33,7 @@ apeld PROG.com [args...]
 | apeld-linux-amd64 | 816 |
 | apeld-linux-arm64 | 923 |
 | apeld-darwin-arm64 | 36944 |
-| apeld-windows-amd64.exe | 3136 |
+| apeld-windows-amd64.exe | 3584 |
 
 ## What the APE layout gives a native loader
 
@@ -50,4 +50,4 @@ apeld PROG.com [args...]
 
 ## Testing
 
-`.github/workflows/ci.yml` builds the loaders and a probe APE with the published gosmopolitan toolchain. It then runs each loader on a matrix of runner versions. The matrix covers ubuntu 22.04 and 24.04 on amd64 and arm64, macOS 14 and 15, and Windows 2022 and 2025. Every run also exercises the stock shell or PE boot as a baseline. It checks that the loaders import nothing beyond libSystem or kernel32. It prints timings.
+The assertions live in `tests/*.dats`, one file per platform, run by [dats](https://github.com/wow-look-at-my/dats). `.github/workflows/ci.yml` builds the loaders and a probe APE with the published gosmopolitan toolchain. It then runs each loader on a matrix of runner versions. The matrix covers ubuntu 22.04 and 24.04 on amd64 and arm64, macOS 14 and 15, and Windows 2022 and 2025. Every run also exercises the stock shell or PE boot as a baseline. It checks that the loaders import nothing beyond libSystem or kernel32. It prints timings.

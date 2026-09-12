@@ -14,8 +14,7 @@ env:
   GOSMO_URL: https://dl.pazer.build/gosmopolitan?branch=master
 
 jobs:
-  # Builds the loaders, checks the committed binaries match, builds the test
-  # APE with the gosmopolitan toolchain, and hands both to the test jobs.
+  # Builds the loaders, checks the committed binaries, builds the probe APE, hands both to the test jobs.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -54,8 +53,7 @@ jobs:
             echo '| loader | bytes |'; echo '|---|---|'
             for f in bin/*; do printf '| %s | %s |\n' "$(basename "$f")" "$(stat -c %s "$f")"; done
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      # Fetch secrets from a self-hosted secret server using GitHub Actions OIDC.
-      # GO_BUILDCACHE_CONFIG arrives this way; the fork's cmd/go needs it under CI.
+      # Fetch secrets from a self-hosted secret server using GitHub Actions OIDC (GO_BUILDCACHE_CONFIG).
       - uses: wow-look-at-my/actions@secret-server#latest
       - name: Build the probe APE
         run: |
@@ -75,8 +73,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm, ubuntu-22.04-arm]
+        include:
+          - {os: ubuntu-22.04, arch: amd64}
+          - {os: ubuntu-24.04, arch: amd64}
+          - {os: ubuntu-22.04-arm, arch: arm64}
+          - {os: ubuntu-24.04-arm, arch: arm64}
     runs-on: ${{ matrix.os }}
+    env:
+      APELD: bin/apeld-linux-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
       - uses: wow-look-at-my/actions@cache-download#latest
@@ -84,25 +88,15 @@ jobs:
           name: apes
           path: out
       - name: Host
-        run: uname -a; ldd --version | head -1; cat /etc/os-release | head -2
-      - name: Stock shell boot (baseline)
-        run: time sh out/probe.com hello || echo "stock shell boot failed with $?"
-      - name: memfd loader
+        run: uname -a; ldd --version | head -1; head -2 /etc/os-release; chmod +x out/probe.com
+      - uses: wow-look-at-my/dats@master
+        with:
+          tests: tests/linux-${{ matrix.arch }}.dats
+      - name: Timing, stock shell versus loader
         run: |
-          case "$(uname -m)" in x86_64) a=amd64;; aarch64) a=arm64;; esac
-          chmod +x out/probe.com
-          APE_PROBE_ENV=yes bin/apeld-linux-$a out/probe.com hello world | tee probe.txt
-          grep -q 'args=\["out/probe.com" "hello" "world"\]' probe.txt
-          grep -q 'exe="/memfd:probe.com"' probe.txt
-          grep -q 'env="yes"' probe.txt
-          grep -q "goarch=$a" probe.txt
-          bin/apeld-linux-$a out/probe.com fail; test $? = 3
-          time bin/apeld-linux-$a out/probe.com again >/dev/null
-      - name: Loader from a read-only, noexec copy of the APE
-        run: |
-          case "$(uname -m)" in x86_64) a=amd64;; aarch64) a=arm64;; esac
-          mkdir -p ro && cp out/probe.com ro/ && chmod 444 ro/probe.com
-          bin/apeld-linux-$a ro/probe.com | grep -q 'args=\["ro/probe.com"\]'
+          time sh out/probe.com hello >/dev/null || true
+          time sh out/probe.com hello >/dev/null || true
+          time "$APELD" out/probe.com hello >/dev/null
 
   macos:
     needs: build
@@ -117,24 +111,21 @@ jobs:
         with:
           name: apes
           path: out
-      - name: Host
-        run: uname -a; sw_vers
-      - name: Loader linkage and signature
+      - name: Host, linkage and signature
         run: |
+          uname -a; sw_vers
+          chmod +x out/probe.com bin/apeld-darwin-arm64
           otool -L bin/apeld-darwin-arm64
           otool -L bin/apeld-darwin-arm64 | tail -n +2 | grep -v libSystem && exit 1
-          codesign -dv bin/apeld-darwin-arm64 2>&1 || true
-      - name: Stock shell boot (baseline, compiles ape-m1.c with cc)
-        run: time sh out/probe.com hello || echo "stock shell boot failed with $?"
-      - name: Precompiled loader
+          codesign -dv bin/apeld-darwin-arm64
+      - uses: wow-look-at-my/dats@master
+        with:
+          tests: tests/darwin-arm64.dats
+      - name: Timing, stock shell versus loader
         run: |
-          chmod +x bin/apeld-darwin-arm64 out/probe.com
-          APE_PROBE_ENV=yes bin/apeld-darwin-arm64 out/probe.com hello world | tee probe.txt
-          grep -q 'args=\["out/probe.com" "hello" "world"\]' probe.txt
-          grep -q 'env="yes"' probe.txt
-          grep -q 'goarch=arm64' probe.txt
-          bin/apeld-darwin-arm64 out/probe.com fail; test $? = 3
-          time bin/apeld-darwin-arm64 out/probe.com again >/dev/null
+          time sh out/probe.com hello >/dev/null || true
+          time sh out/probe.com hello >/dev/null || true
+          time bin/apeld-darwin-arm64 out/probe.com hello >/dev/null
       - name: Same source built by the host clang
         run: |
           clang -Os -o apeld-host darwin/apeld.c
@@ -157,24 +148,23 @@ jobs:
       - name: Host
         shell: pwsh
         run: (Get-CimInstance Win32_OperatingSystem).Caption; [Environment]::OSVersion.VersionString
-      - name: Stock PE boot (baseline)
+      # The dats action runs inside WSL on NT, so the NT suite uses the NT dats binary instead.
+      - name: Download dats
+        id: dats
+        uses: wow-look-at-my/buildhost/.github/actions/buildhost-download@master
+        with:
+          project: dats
+      - name: Loader suite (dats, on NT)
+        shell: pwsh
+        env:
+          DATS_BIN: ${{ steps.dats.outputs.path }}
+        run: |
+          Copy-Item $env:DATS_BIN "$env:RUNNER_TEMP\dats.exe"
+          & "$env:RUNNER_TEMP\dats.exe" -v --no-sandbox test tests/windows-amd64.dats
+          exit $LASTEXITCODE
+      - name: Timing, stock PE versus loader
         shell: pwsh
         run: |
-          $sw = [Diagnostics.Stopwatch]::StartNew()
-          & .\out\probe.com hello
-          "stock PE boot exit=$LASTEXITCODE in $($sw.ElapsedMilliseconds) ms"
-      - name: In-memory loader
-        shell: pwsh
-        run: |
-          $env:APE_PROBE_ENV = 'yes'
-          $out = & .\bin\apeld-windows-amd64.exe .\out\probe.com hello world | Out-String
-          $out
-          if ($LASTEXITCODE -ne 0) { throw "exit $LASTEXITCODE" }
-          if ($out -notmatch 'args=\["\.\\\\out\\\\probe\.com" "hello" "world"\]') { throw 'args' }
-          if ($out -notmatch 'env="yes"') { throw 'env' }
-          if ($out -notmatch 'goos=windows goarch=amd64') { throw 'platform' }
-          & .\bin\apeld-windows-amd64.exe .\out\probe.com fail
-          if ($LASTEXITCODE -ne 3) { throw "expected exit 3, got $LASTEXITCODE" }
-          $sw = [Diagnostics.Stopwatch]::StartNew()
-          & .\bin\apeld-windows-amd64.exe .\out\probe.com again | Out-Null
-          "loader run: $($sw.ElapsedMilliseconds) ms"
+          foreach ($cmd in @({ & .\out\probe.com hello }, { & .\bin\apeld-windows-amd64.exe .\out\probe.com hello })) {
+            $sw = [Diagnostics.Stopwatch]::StartNew(); & $cmd | Out-Null; "$($sw.ElapsedMilliseconds) ms"
+          }
