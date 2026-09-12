@@ -92,6 +92,6 @@ Wall time of `probe.com hello`, output discarded. The shell columns are the firs
 | macos-15 | 15 ms | 14 ms | 4 ms |
 | macos-latest | 31 ms | 28 ms | 5 ms |
 
-On Windows the stock PE boot and the in-memory loader are one column each, since nothing is staged: 23 to 26 ms against 7 to 9 ms, and the loader wins because it never maps the file as an image.
+On Windows nothing is staged, so the stock PE boot and the in-memory loader are one measurement each. The stock boot takes 23 to 26 ms. The loader takes 7 to 9 ms. It wins because it never maps the file as an image.
 
 The macOS shell numbers are with the compiled `ape-m1` already cached under `/tmp`. The first run on a fresh machine also pays for `cc`, about a second on these runners.
