@@ -6,7 +6,7 @@ The reference APEs come from [wow-look-at-my/gosmopolitan](https://github.com/wo
 
 ## Which platforms need a loader at all
 
-- Linux: the kernel cannot exec the file as it stands. The shell needs a writable, exec-capable `/tmp` for the staged copy. A read-only or `noexec` filesystem stops the program. The memfd loader removes that need.
+- Linux: the kernel cannot exec the file as it stands. The shell needs a writable, exec-capable `/tmp` for the staged copy. A read-only or `noexec` filesystem stops the program. The memfd loader removes that need. Registering the loader with `binfmt_misc` under the `F` flag removes the loader's own file too: the kernel holds it by descriptor, so an APE starts on a host with nothing writable and no loader file on it (see `LOG.txt`).
 - macOS arm64: the shell needs `/tmp` and a working `cc` from Xcode. The precompiled loader removes both needs.
 - Windows: nothing is extracted and nothing is modified. The file is a valid PE and the OS maps the payload straight from the file, read-only path or not. The Windows loader here is the in-memory equivalent, for the case where the file must not be started as an image.
 

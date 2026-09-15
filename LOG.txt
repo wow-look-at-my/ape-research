@@ -104,4 +104,16 @@ A host that has none unpacks the loader the APE embeds. The linker stores the Li
 
 Measured with `/tmp`, the program's directory and `/usr/local/lib/ape` all mounted read-only in a private mount namespace: the staged copy dies with `APE: cannot create /tmp/.ape-run-1-0/...`, and the loader boot runs.
 
-windows/amd64 needs nothing, as this repo already found. darwin/amd64 has no loader here, so it still stages a copy. It is not in `cosmoape.Default()`, and no Intel-mac runner exists to verify one.
+windows/amd64 needs nothing, as this repo already found. gosmopolitan dropped darwin/amd64 outright rather than keep the one platform that had to copy the program: XNU reads the Mach-O header at offset 0, and an APE cannot carry it there.
+
+## binfmt_misc holds the loader by descriptor
+
+The loader still has to reach the host somehow, and unpacking it is a write. `binfmt_misc` removes even that, on Linux.
+
+An entry registered with the `F` flag is opened at registration time. The kernel keeps the descriptor and spawns the interpreter from it, so the path it was registered under stops deciding anything afterwards.
+
+Measured on Linux 6.18: register `:APE:M::MZqFpD='::<loader>:F`, delete the loader file, then mount `/tmp`, the program's directory and `/usr/local/lib` read-only in a private mount namespace. `execve` of the APE still boots the payload. No shell runs, no loader file exists, and nothing is writable.
+
+The register file is in procfs, so a read-only disk does not stop the registration either. Root does. gosmopolitan's boot script now takes the registration whenever it can, from whichever loader it found.
+
+macOS has no equivalent. There the zero-write boot needs a loader the host already carries.
