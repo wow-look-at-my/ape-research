@@ -1,43 +1,23 @@
 # Option A: content-based library discovery on macOS arm64
 
-Author: empirical investigation, macOS 26.5 (Darwin 25.5.0), Apple M5, arm64.
-Scratch: `/tmp/apex-a`. All artifacts buildable from the sources below.
+Author: empirical investigation, macOS 26.5 (Darwin 25.5.0), Apple M5, arm64. Scratch: `/tmp/apex-a`. All artifacts buildable from the sources below.
 
 ---
 
-## 0. Bottom line up front
+#Bottom line up front
 
-**Option A works, and it is technically sound.** I built a resolver that finds
-libSystem exports by *what they export*, with zero link-time symbol references
-and zero dylib load commands in the probing binary, and it resolves all 53
-Syslib-contract symbols (plus 184/187 in a broader sweep) to addresses that
-**exactly match `dlsym`** (modulo two documented stub cases) and are
-**provably callable**.
+**Option A works. And it is technically sound.** I built a resolver that finds libSystem exports by *what they export*, with zero link-time symbol references and zero dylib load commands in the probing binary. It resolves all 53 Syslib-contract symbols (plus 184/187 in a broader sweep) to addresses that **exactly match `dlsym`** (modulo two documented stub cases) and are **provably callable**.
 
-**But the rename scenario as posed is not survivable — not by Option A, not by
-Option B, not by anything you can ship.** The reason is upstream of the loader:
-dyld itself, which the kernel runs before your first instruction, hard-codes
-`/usr/lib/system/libdyld.dylib` and `/usr/lib/libSystem.B.dylib` as literal
-strings and **halts if either is missing** (`dyldMain.cpp:857`,
-`dyldMain.cpp:897`). If Apple renames those, dyld aborts and *every* process on
-the system dies — including one whose own dependencies are perfectly
-content-discovered. Content discovery never gets a chance to run.
+**But the rename scenario as posed is not survivable — not by Option A, not by Option B, not by anything you can ship.** The reason is upstream of the loader: dyld itself, which the kernel runs before your first instruction, hard-codes `/usr/lib/system/libdyld.dylib` and `/usr/lib/libSystem.B.dylib` as literal strings and **halts if either is missing** (`dyldMain.cpp:857`, `dyldMain.cpp:897`). If Apple renames those, dyld aborts and *every* process on the system dies — including one whose own dependencies are perfectly content-discovered. Content discovery never gets a chance to run.
 
-So Option A is real, but its value is **narrower and different** from the stated
-thesis: it protects against *your* stale names and against *export relocation
-inside the cache*, not against an Apple rename of libSystem, because dyld
-already depends on that name.
+So Option A is real. Its value is **narrower and different** from the stated thesis: it protects against *your* stale names and against *export relocation inside the cache*, not against an Apple rename of libSystem, because dyld already depends on that name.
 
-The decisive new finding that changes the calculus: **the "zero dylib
-reference" route is fully viable below minos 15.4**, which is a much simpler
-mechanism than a full cache parser and achieves most of the same compatibility
-goal. See §5 and §8.
+The decisive new finding that changes the calculus: **the "zero dylib reference" route is fully viable below minos 15.4**, which is a much simpler mechanism than a full cache parser and achieves most of the same compatibility goal. See §5 and §8.
 
 ---
 
-## 1. What I verified working (with exact commands)
+#What I verified working (with exact commands)
 
-### 1.1 The shared-cache header layout — solved
 
 The field offsets the prior attempt got wrong are:
 
@@ -59,9 +39,7 @@ The field offsets the prior attempt got wrong are:
 | **`imagesCount`** | **`0x1C4`** | uint32 |
 | `cacheSubType` | `0x1C8` | uint32 |
 
-Confirmed three ways: (a) compiled Apple's own `dyld_cache_format.h` and printed
-`offsetof`; (b) read the same values out of the on-disk cache; (c) used them to
-successfully walk every image.
+Confirmed three ways: (a) compiled Apple's own `dyld_cache_format.h` and printed `offsetof`. (b) read the same values out of the on-disk cache. (c) used them to successfully walk every image.
 
 ```
 $ cc -o chdr chdr.c && ./chdr        # includes Apple's dyld_cache_format.h
@@ -76,11 +54,7 @@ imagesOffset=0x298 imagesCount=3646
   img[0] addr=0x18008c000 pathOff=0x394c8 path='/usr/lib/libobjc.A.dylib'
 ```
 
-The prior attempt's `0x18/0x1C` returned 0 because those are deliberately
-retired ("moved to imagesOffset to prevent older dsc_extractors from
-crashing"); `0xE0/0xE4` is `sharedRegionStart`, which is a valid-looking 64-bit
-value whose low half is garbage — that explains "implausible values then
-segfault."
+The prior attempt's `0x18/0x1C` returned 0 because those are deliberately retired ("moved to imagesOffset to prevent older dsc_extractors from crashing").`0xE0/0xE4` is `sharedRegionStart`, which is a valid-looking 64-bit value whose low half is garbage — that explains "implausible values then segfault."
 
 ### 1.2 The address-translation rules — solved
 
@@ -91,12 +65,7 @@ linkeditLive = (uint8_t*)(linkeditSeg.vmaddr + slide)
 trie         = linkeditLive + (trie_dataoff - linkeditSeg.fileoff)
 ```
 
-The last line is the one that defeated the prior attempt. `dataoff` in
-`LC_DYLD_EXPORTS_TRIE` / `LC_DYLD_INFO_ONLY` is a **file offset within the
-subcache that holds `__LINKEDIT`**, not a cache-relative or image-relative
-offset. On this machine `__LINKEDIT.fileoff == 0x4000` and the trie lives in
-`.04.dyldlinkedit` / `.08.dyldlinkedit` etc. Subtracting `linkeditSeg.fileoff`
-is mandatory; adding is wrong; treating it as absolute is wrong.
+The last line is the one that defeated the prior attempt. `dataoff` in `LC_DYLD_EXPORTS_TRIE` / `LC_DYLD_INFO_ONLY` is a **file offset within the subcache that holds `__LINKEDIT`**, not a cache-relative or image-relative offset. On this machine `__LINKEDIT.fileoff == 0x4000` and the trie lives in `.04.dyldlinkedit` / `.08.dyldlinkedit` etc. Subtracting `linkeditSeg.fileoff` is mandatory. Adding is wrong. Treating it as absolute is wrong.
 
 `cacheBase` itself comes from:
 
@@ -104,16 +73,11 @@ is mandatory; adding is wrong; treating it as absolute is wrong.
 uint64_t base; syscall(294 /* shared_region_check_np */, &base);
 ```
 
-In a live process the *entire* shared region (all 12 subcaches, ~5.7 GiB of VM)
-is mapped contiguously starting at `cacheBase`, so `cacheBase + subCacheVMOffset`
-addresses each subcache. That is why `images[i].address + slide` works with a
-single global slide.
+In a live process the *entire* shared region (all 12 subcaches, ~5.7 GiB of VM) is mapped contiguously starting at `cacheBase`, so `cacheBase + subCacheVMOffset` addresses each subcache. That is why `images[i].address + slide` works with a single global slide.
 
 ### 1.3 The export trie parser — verified against ground truth
 
-Node layout (correct): `[terminalSize ULEB][terminal payload if size>0]
-[childCount ULEB][child: NUL-terminated edge + ULEB childOffset]`.
-Terminal payload begins with a `flags` ULEB, then:
+Node layout (correct): `[terminalSize ULEB][terminal payload if size>0] [childCount ULEB][child: NUL-terminated edge + ULEB childOffset]`. Terminal payload begins with a `flags` ULEB, then:
 
 | flags | meaning | payload after flags |
 |---|---|---|
@@ -125,14 +89,8 @@ Terminal payload begins with a `flags` ULEB, then:
 
 Two traps I hit and fixed:
 
-1. **Symbol names in the trie carry the leading underscore.** Look up
-   `_pthread_create`, not `pthread_create`. (Exception: re-export *import* names
-   sometimes carry two, e.g. `__platform_strcmp`.)
-2. **`0x10` is `STUB_AND_RESOLVER`, not "absolute."** My first version conflated
-   it with `0x02`, which produced a wrong address for `strcmp`/`strncmp`. I
-   measured the correct interpretation empirically (§3.2): the **first** ULEB is
-   the callable implementation; the **second** is an arm64e dispatch stub that
-   returns garbage when called with real arguments.
+1. **Symbol names in the trie carry the leading underscore.** Look up `_pthread_create`, not `pthread_create`. (Exception: re-export *import* names sometimes carry two, e.g. `__platform_strcmp`.)
+2. **`0x10` is `STUB_AND_RESOLVER`, not "absolute."** My first version conflated it with `0x02`, which produced a wrong address for `strcmp`/`strncmp`. I measured the correct interpretation empirically (§3.2): the **first** ULEB is the callable implementation. The **second** is an arm64e dispatch stub that returns garbage when called with real arguments.
 
 Validation: parse a file on disk, dump its trie, compare to `nm`.
 
@@ -153,8 +111,7 @@ $ ./cov
 images=3646 parsed-ok=3646 no-trie=0 bad=0 total-symbols=3641939
 ```
 
-**Every image in the live cache parses, 3.64 million symbols enumerated, zero
-malformed.**
+**Every image in the live cache parses, 3.64 million symbols enumerated, zero malformed.**
 
 ### 1.4 End-to-end resolution vs `dlsym`
 
@@ -166,14 +123,10 @@ DIFF      strncmp  cache=0x188d2f918 dlsym=0x188d2c9b0 (/usr/lib/system/libsyste
 NOTFOUND  dlinfo
 ```
 
-- The 2 `DIFF`s are `STUB_AND_RESOLVER` exports (correctly identified; see §3.2).
-- `dlinfo` is **genuinely absent** from this OS's cache (`nm`/`dyld_info` confirm).
-  A content resolver correctly reports "not found" rather than inventing an
-  address — the desired failure mode.
-- Re-exports are followed: `memcpy` (a re-export in `libsystem_c`) resolves
-  through to `libsystem_platform`.
+- The 2 `DIFF`s are `STUB_AND_RESOLVER` exports (correctly identified. See §3.2).
+- `dlinfo` is **genuinely absent** from this OS's cache (`nm`/`dyld_info` confirm). A content resolver correctly reports "not found" rather than inventing an address — the desired failure mode.
+- Re-exports are followed: `memcpy` (a re-export in `libsystem_c`) resolves through to `libsystem_platform`.
 
-### 1.5 The pointers are callable, not just equal
 
 ```
 $ ./calltest
@@ -184,10 +137,8 @@ getpid via content ptr = 81028, libc = 81028  OK
 pthread_self via content ptr = 0x1f4ea1e80, libc = 0x1f4ea1e80  OK
 ```
 
-### 1.6 The real deliverable: a full Syslib table built by content
 
-`syslibdemo.c` is a **zero-dylib-load-command, zero-undefined-symbol** Mach-O
-that builds the entire 53-entry Syslib contract from cache contents:
+`syslibdemo.c` is a **zero-dylib-load-command, zero-undefined-symbol** Mach-O that builds the entire 53-entry Syslib contract from cache contents:
 
 ```
 $ nm -u t/syslibdemo      # (empty)
@@ -205,8 +156,7 @@ getentropy via table rc=0  bytes=0x674344ad05fa8b12
 fork() via table = 0  (0 = child)
 ```
 
-Note where the symbols actually live — **not one comes from
-`/usr/lib/libSystem.B.dylib`**:
+Note where the symbols actually live — **not one comes from `/usr/lib/libSystem.B.dylib`**:
 
 | image supplying Syslib symbols | count |
 |---|---|
@@ -217,10 +167,8 @@ Note where the symbols actually live — **not one comes from
 | `libdyld.dylib` | 4 |
 | `libsystem_platform.dylib` | 1 |
 
-`libSystem.B.dylib` is a pure re-export umbrella: it exports only 3 symbols of
-its own and re-exports 39 sub-libraries. This matters for §4.
+`libSystem.B.dylib` is a pure re-export umbrella: it exports only 3 symbols of its own and re-exports 39 sub-libraries. This matters for §4.
 
-### 1.7 Measured sizes
 
 | artifact | bytes | notes |
 |---|---|---|
@@ -230,14 +178,13 @@ its own and re-exports 39 sub-libraries. This matters for §4.
 | `t/syslibdemo` | 51,408 | full 53-entry Syslib by content, zero undefined |
 | `darwin/apeld.c` (Option B, given) | ~36,944 | links libSystem, 67 undefined symbols |
 
-Content discovery costs **~14.5 KiB** of code (51,408 − 36,944) versus the
-conventional loader, and removes all 67 link-time symbol dependencies.
+Content discovery costs **~14.5 KiB** of code (51,408 − 36,944) versus the conventional loader, and removes all 67 link-time symbol dependencies.
 
 ---
 
-## 2. The irreducible dependency list
+#The irreducible dependency list
 
-These are real, measured, and I could not defeat them.
+These are real, measured, and I can not defeat them.
 
 | # | dependency | enforced by | evidence |
 |---|---|---|---|
@@ -249,10 +196,9 @@ These are real, measured, and I could not defeat them.
 | 6 | `filetype` must be `MH_EXECUTE` (2) | kernel | every other filetype → `Exec format error` (126); `MH_DYLIB`/`MH_BUNDLE` are not launchable |
 | 7 | `MH_DYLDLINK` flag must be set on `MH_EXECUTE` | kernel | clearing it → SIGKILL (137) |
 
-### The one that kills the thesis
+### The a single that kills the thesis
 
-**Items 2 and 3 are name-based and live in dyld, before your code runs.** I
-verified this in the source rather than guessing:
+**Items 2 and 3 are name-based and live in dyld, before your code runs.** I verified this in the source rather than guessing:
 
 ```
 research/dyld/dyld/DyldRuntimeState.cpp:467-470
@@ -262,19 +208,12 @@ research/dyld/dyld/DyldRuntimeState.cpp:467-470
         libSystemLoader = ldr;
 ```
 
-`libdyldLoader` and `libSystemLoader` can *only* be set by those exact strings.
-`dyldMain` then halts unconditionally if either is null. There is no content
-fallback, no inode check, no UUID check — a literal `strcmp`.
+`libdyldLoader` and `libSystemLoader` can *only* be set by those exact strings. `dyldMain` then halts unconditionally if either is null. There is no content fallback, no inode check, no UUID check — a literal `strcmp`.
 
-I could not construct any arm64 launchable Mach-O that avoids this: every
-`MH_EXECUTE` goes through `prepare()` → `loadDependents()` → `state.add()` →
-this `strcmp`.
+I can not construct any arm64 launchable Mach-O that avoids this: every `MH_EXECUTE` goes through `prepare()` → `loadDependents()` → `state.add()` → this `strcmp`.
 
-### The subtle one: even zero dylib commands does not escape the name
 
-This is the sharpest adversarial finding. dyld, for a binary with **no** dylib
-load commands, *synthesizes* a libSystem dependency — but it synthesizes it **as
-the literal string**:
+This is the sharpest adversarial finding. dyld, for a binary with **no** dylib load commands, *synthesizes* a libSystem dependency —. It synthesizes it **as the literal string**:
 
 ```
 research/dyld/mach_o/UnsafeHeader.cpp:1403-1422
@@ -286,8 +225,7 @@ research/dyld/mach_o/UnsafeHeader.cpp:1403-1422
     }
 ```
 
-So the zero-dylib trick (§5) is *also* name-dependent through dyld. It buys you
-survival of *dyld's epoch validation*, not survival of a rename.
+So the zero-dylib trick (§5) is *also* name-dependent through dyld. It buys you survival of *dyld's epoch validation*, not survival of a rename.
 
 ---
 
@@ -309,9 +247,7 @@ survival of *dyld's epoch validation*, not survival of a rename.
 
 ### 3.2 The `STUB_AND_RESOLVER` measurement
 
-Prior notes called flag `0x10` "absolute"; it is not. Measured on
-`__platform_strcmp` in `libsystem_platform.dylib`
-(first ULEB → 0x790C, second → 0x920):
+Prior notes called flag `0x10` "absolute". It is not. Measured on `__platform_strcmp` in `libsystem_platform.dylib` (first ULEB → 0x790C, second → 0x920):
 
 ```
 $ ./stubfinal
@@ -321,16 +257,11 @@ __platform_strncmp  r1=0x188d2f918 r2=0x188d289b4
    CALL r1: strncmp('abcx','abcy',3)=0 (want 0)
 ```
 
-Calling `r2` as `strcmp` returned `-1999452368` (garbage). Calling `r1` returned
-`-1`. So: **first ULEB = callable implementation, second = arm64e dispatch stub.**
-`dlsym` additionally resolves to a CPU-optimised variant, hence the benign
-address difference. This is the correct, if slightly uncomfortable, behaviour.
+Calling `r2` as `strcmp` returned `-1999452368` (garbage). Calling `r1` returned `-1`. So: **first ULEB = callable implementation, second = arm64e dispatch stub.** `dlsym` additionally resolves to a CPU-optimised variant, hence the benign address difference. This is the correct, if slightly uncomfortable, behaviour.
 
 ### 3.3 The x3 "apple vector" is dyld launch parameters, not a libSystem table
 
-The prior note hoped x3 was "an array of char* pointers (12 entries, then
-string data)". It **is** an array of strings — but they are `key=value` launch
-parameters, not pointers to libSystem:
+The prior note hoped x3 was "an array of char* pointers (12 entries, then string data)". It **is** an array of strings — but they are `key=value` launch parameters, not pointers to libSystem:
 
 ```
 $ ./t/vec2
@@ -342,40 +273,25 @@ saved_x3 = 0x000000016f842680
   str[9 ] = 'executable_boothash=6982bda0373f93d83d9ee7ce8c6f...'
 ```
 
-Confirmed in source: consumed by `ProcessConfig::Process::appleParam()` via
-`_simple_getenv((const char**)apple, key)` (`DyldProcessConfig.cpp:572`).
-**There is no pointer table to libSystem anywhere in the process image.** A
-loader must resolve everything itself. (One nice side effect: `executable_path=`
-is available here, which is useful for `AT_EXECFN`.)
+Confirmed in source: consumed by `ProcessConfig::Process::appleParam()` via `_simple_getenv((const char**)apple, key)` (`DyldProcessConfig.cpp:572`). **There is no pointer table to libSystem anywhere in the process image.** A loader must resolve everything itself. (One nice side effect: `executable_path=` is available here, which is useful for `AT_EXECFN`.)
 
-Also corrected: x3 *is* valid at entry. My first C probe read zero because the
-prologue clobbered x3 before saving it; an assembly shim (`x3shim.S`) captures
-the real value. So the earlier "x3 is garbage" conclusion was a measurement
-artifact, not a kernel behaviour.
+Also corrected: x3 *is* valid at entry. My first C probe read zero because the prologue clobbered x3 before saving it. An assembly shim (`x3shim.S`) captures the real value. So the earlier "x3 is garbage" conclusion was a measurement artifact, not a kernel behaviour.
 
 ### 3.4 The prior attempt's segfaults, explained
 
 All three causes are now identified:
 1. Following `imagesOffset` at `0x18` → 0 → dereference near-null.
-2. Following `0xE0` as `imagesOffset` → `sharedRegionStart` low half
-   (`0x80000000`) → wild pointer.
-3. Placing the trie at `linkeditLive + dataoff` (without subtracting
-   `linkedit.fileoff = 0x4000`) → valid-looking bytes that are not a trie →
-   unbounded child walk → segfault.
+2. Following `0xE0` as `imagesOffset` → `sharedRegionStart` low half (`0x80000000`) → wild pointer.
+3. Placing the trie at `linkeditLive + dataoff` (without subtracting `linkedit.fileoff = 0x4000`) → valid-looking bytes that are not a trie → unbounded child walk → segfault.
 
 ---
 
-## 4. Does content discovery genuinely survive a rename?
+#Does content discovery genuinely survive a rename?
 
-**Yes for the dependency your binary declares. No for the rename that matters,
-because dyld dies first.** Rigorously:
+**Yes for the dependency your binary declares. No for the rename that matters, because dyld dies first.** Rigorously:
 
-### 4.1 Proven: the resolver never reads a path
 
-`cacheresolve.c` / `syslibdemo.c` / `apexdemo.c` never call `open`, `stat`, or
-`dlopen` to find the library. They iterate `images[i]` and match **only** on
-trie contents. The path string is used solely for *reporting*. Simulating
-renames by hiding images whose paths match:
+`cacheresolve.c` / `syslibdemo.c` / `apexdemo.c` never call `open`, `stat`, or `dlopen` to find the library. They iterate `images[i]` and match **only** on trie contents. The path string is used solely for *reporting*. Simulating renames by hiding images whose paths match:
 
 ```
 $ ./renamesim
@@ -386,40 +302,21 @@ hide='libdyld     ': resolved 7/8     <- only dlopen/dlsym are lost
 hide='lib' (all system libs): resolved 0/8 (clean failure, no crash)
 ```
 
-So if a *future dyld* stops name-matching and loads a renamed library, content
-discovery would keep working — for 7 of 8 symbols even with the entire
-`libSystem*` family renamed, because the exports physically live in
-`libsystem_kernel`, `libsystem_pthread`, etc.
+So if a *future dyld* stops name-matching and loads a renamed library, content discovery will keep working — for 7 of 8 symbols even with the entire `libSystem*` family renamed, because the exports physically live in `libsystem_kernel`, `libsystem_pthread`, etc.
 
-### 4.2 The catch that makes it moot
 
-For the rename to be survivable *at all*, dyld must first get past
-`halt("libSystem.B.dylib not found")`. It cannot, by construction (§2). So:
+For the rename to be survivable *at all*, dyld must first get past `halt("libSystem.B.dylib not found")`. It cannot, by construction (§2). So:
 
-- **Today's dyld, libSystem renamed** → dyld aborts → Option A and Option B both
-  die identically. Content discovery is dead code.
-- **A future dyld that stopped name-matching** → Option A survives; Option B
-  (which weak-links `libSystem.B.dylib`) would have its reference fail and, on
-  minos ≥ 15.4 with no surviving edge, abort.
+- **Today's dyld, libSystem renamed** → dyld aborts → Option A and Option B both die identically. Content discovery is dead code.
+- **A future dyld that stopped name-matching** → Option A survives. Option B (which weak-links `libSystem.B.dylib`) will have its reference fail and, on minos ≥ 15.4 with no surviving edge, abort.
 
-In other words, Option A only pays off in the world where Apple *also* fixes
-dyld's own brittleness — which is the world where the attack is already
-defanged.
+In other words, Option A only pays off in the world where Apple *also* fixes dyld's own brittleness — which is the world where the attack is already defanged.
 
-### 4.3 Removal / splitting / export movement
 
 - **Removal of `libSystem.B.dylib`:** fatal (dyld hard-codes it), same as rename.
-- **Splitting/relocating exports between images:** this is where Option A
-  genuinely wins, and it is not hypothetical — `libSystem.B.dylib` already
-  exports only 3 symbols and re-exports 39 sub-libraries, and every one of the
-  53 Syslib symbols comes from a sub-library, not from libSystem.B itself. A
-  loader that hard-links `libSystem.B` and relies on its flat namespace would be
-  the fragile one. Content discovery is indifferent to which image holds an
-  export.
-- **A symbol moving image:** resolved correctly, because resolution is a scan
-  over all images, not a lookup in one.
+- **Splitting/relocating exports between images:** this is where Option A genuinely wins. And it is not hypothetical — `libSystem.B.dylib` already exports only 3 symbols and re-exports 39 sub-libraries. Every one of the 53 Syslib symbols comes from a sub-library, not from libSystem.B itself. A loader that hard-links `libSystem.B` and relies on its flat namespace will be the fragile one. Content discovery is indifferent to which image holds an export.
+- **A symbol moving image:** resolved correctly, because resolution is a scan over all images, not a lookup in one.
 
-### 4.4 What the mechanism itself depends on that Apple controls
 
 | dependency | risk | mitigation |
 |---|---|---|
@@ -434,12 +331,9 @@ So the *mechanism* is defensible. It is only the *scenario* that is unwinnable.
 
 ## 5. Decisive and surprising: the minos-15.4 gate
 
-This is a genuinely new compatibility lever, and it is cheaper than content
-discovery.
+This is a genuinely new compatibility lever. And it is cheaper than content discovery.
 
-`Policy::enforceHasLinkedDylibs()` returns true only when the **binary's own**
-enforcement epoch is `>= spring2025`. The epoch is derived from the binary's
-`minos`, i.e. it is a property of *our* file and cannot be changed under us.
+`Policy::enforceHasLinkedDylibs()` returns true only when the **binary's own** enforcement epoch is `>= spring2025`. The epoch is derived from the binary's `minos`, i.e. it is a property of *our* file and cannot be changed under us.
 
 ```
 $ for v in 11.0 ... 26.0; do  # build -weak-lSystem, then drop all dylib cmds
@@ -456,32 +350,22 @@ minos=16.0  rc=134
 minos=26.0  rc=134
 ```
 
-Boundary is exactly **15.4**. A binary declaring `minos 11.0` with **zero dylib
-load commands** runs, because dyld's `forEachLinkedDylib` synthesizes the
-libSystem edge for it (§2) and the epoch check is grandfathered.
+Boundary is exactly **15.4**. A binary declaring `minos 11.0` with **zero dylib load commands** runs, because dyld's `forEachLinkedDylib` synthesizes the libSystem edge for it (§2) and the epoch check is grandfathered.
 
 Consequences:
 
-- A minos-11 binary carries **no dylib install-name string at all** in its load
-  commands. Rename `libSystem.B.dylib` and *our* file still refers to nothing
-  by that name — though dyld's internal synthesis still uses it (§2).
-- This gets you the same "no name in my binary" property as a hand-built
-  `LC_LOAD_WEAK_DYLIB` hack, with **no byte patching and no re-signing**.
+- A minos-11 binary carries **no dylib install-name string at all** in its load commands. Rename `libSystem.B.dylib` and *our* file still refers to nothing by that name — though dyld's internal synthesis still uses it (§2).
+- This gets you the same "no name in my binary" property as a hand-built `LC_LOAD_WEAK_DYLIB` hack, with **no byte patching and no re-signing**.
 
-**Important caveat, verified:** minos is a floor, not a ceiling. The binary still
-runs on macOS 26.5. But whether dyld *chooses* to enforce the spring-2025 policy
-from the binary's minos is itself dyld behaviour Apple can change in a future OS;
-today it is grandfathered.
+**Important caveat, verified:** minos is a floor, not a ceiling. The binary still runs on macOS 26.5. But whether dyld *chooses* to enforce the spring-2025 policy from the binary's minos is itself dyld behaviour Apple can change in a future OS. Today it is grandfathered.
 
 ---
 
-## 6. Redundancy beats cleverness: the cheapest real defence
+#Redundancy beats cleverness: the cheapest real defence
 
-Measured, not theorised. Two weak references, one of which will survive any
-single rename:
+Measured, not theorised. Two weak references, one of which will survive any single rename:
 
 ```
-# binary links WEAK libSystem.B + WEAK libz.1
 $ ./munge t/two_weak show | grep 'name='
 [11] LC_LOAD_WEAK_DYLIB  name='/usr/lib/libSystem.B.dylib'
 [12] LC_LOAD_WEAK_DYLIB  name='/usr/lib/libz.1.dylib'
@@ -505,59 +389,33 @@ And on minos 26 (post-epoch), with `libSystem.B` renamed but `libz` intact:
 
 ```
 $ ./t/m26_two a b c
-rc=4                                # runs: one surviving weak edge satisfies policy
+rc=4                                # runs: a single surviving weak edge satisfies
 ```
 
-**A second, unrelated `LC_LOAD_WEAK_DYLIB` costs one load command (~48 bytes)
-and converts a hard abort into a successful launch** for any single-library
-rename. That is a far better return than 14.5 KiB of cache parser, and it stacks
-with Option A. Note that both-renamed still aborts (`libdyld.dylib not found`),
-so this is redundancy, not immunity.
+**A second, unrelated `LC_LOAD_WEAK_DYLIB` costs one load command (~48 bytes) and converts a hard abort into a successful launch** for any single-library rename. That is a far better return than 14.5 KiB of cache parser, and it stacks with Option A. Note that both-renamed still aborts (`libdyld.dylib not found`). So this is redundancy, not immunity.
 
 ---
 
-## 7. Why `libdyld.dylib` matters to the *loader* specifically
+#Why `libdyld.dylib` matters to the *loader* specifically
 
-Worth stating explicitly for your design: `apeld.c` and `ape-m1.c` both call
-`dlopen`/`dlsym` to fill 4 of 53 Syslib slots. Those live in `libdyld.dylib`.
-Content discovery resolves them from the same cache walk, so a loader built on
-Option A needs **no** `dlopen`/`dlsym` at all — removing the last runtime
-dependency on dyld's public API. That is a small but genuine structural win:
-the loader becomes a pure reader of already-mapped memory plus raw syscalls.
+Worth stating explicitly for your design: `apeld.c` and `ape-m1.c` both call `dlopen`/`dlsym` to fill 4 of 53 Syslib slots. Those live in `libdyld.dylib`. Content discovery resolves them from the same cache walk, so a loader built on Option A needs **no** `dlopen`/`dlsym` at all — removing the last runtime dependency on dyld's public API. That is a small but genuine structural win: the loader becomes a pure reader of already-mapped memory plus raw syscalls.
 
-The trade: your loader will then hold raw pointers it cannot re-resolve after an
-OS update, where `dlsym` would re-resolve. Given the loader is short-lived
-(it maps the payload and jumps), that is acceptable.
+The trade: your loader will then hold raw pointers it cannot re-resolve after an OS update, where `dlsym` will re-resolve. Given the loader is short-lived (it maps the payload and jumps), that is acceptable.
 
 ---
 
 ## 8. Blunt recommendation
 
-**Option A is worth building, but not for the reason stated, and not as the
-first thing you build.**
+**Option A is worth building, but not for the reason stated, and not as the first thing you build.**
 
 Concretely:
 
-1. **Ship Option B first** (weak-link + raw syscalls), plus the two cheap
-   hardening measures below. It is a day of work and covers more real-world
-   breakage than the cache parser does.
-2. **Add a second weak dylib reference** (§6). ~48 bytes, converts a hard abort
-   into a launch under any single rename. Highest ratio in this report.
-3. **Set `minos 11.0`** so dyld's spring-2025 `enforceHasLinkedDylibs` stays
-   grandfathered (§5). Keep at least one weak edge anyway so you are not relying
-   on the grandfather clause alone.
-4. **Then add content discovery as the Syslib source** (§1.6, 53/53, ~2 KiB of
-   the 14.5 KiB is the resolver; the rest is I/O scratch). It is robust
-   (3646/3646 images, 3.64M symbols, zero failures), it matches `dlsym` exactly,
-   and it eliminates all 67 link-time symbols in `apeld.c`. Its *real* payoff is
-   immunity to internal cache reorganisation and to `libSystem.B` being a
-   re-export umbrella — which it already is.
-5. **Do not claim rename immunity.** It is false (§2, §4.2). If you brief this
-   as "survives libSystem being renamed," you will be wrong in the one scenario
-   where it matters, because dyld halts at
-   `dyld_main → prepare() → state.add()` before your loader is entered.
-6. **Do keep the fallback path** for `shared_region_check_np` (§4.4). It is
-   verified working and costs ~20 lines.
+1. **Ship Option B first** (weak-link + raw syscalls), plus the two cheap hardening measures below. It is a day of work and covers more real-world breakage than the cache parser does.
+2. **Add a second weak dylib reference** (§6). ~48 bytes, converts a hard abort into a launch under any single rename. Highest ratio in this report.
+3. **Set `minos 11.0`** so dyld's spring-2025 `enforceHasLinkedDylibs` stays grandfathered (§5). Keep at least one weak edge anyway so you are not relying on the grandfather clause alone.
+4. **Then add content discovery as the Syslib source** (§1.6, 53/53, ~2 KiB of the 14.5 KiB is the resolver. The rest is I/O scratch). It is robust (3646/3646 images, 3.64M symbols, zero failures), it matches `dlsym` exactly, and it eliminates all 67 link-time symbols in `apeld.c`. Its *real* payoff is immunity to internal cache reorganisation and to `libSystem.B` being a re-export umbrella — which it already is.
+5. **Do not claim rename immunity.** It is false (§2, §4.2). If you brief this as "survives libSystem being renamed," you will be wrong in the one scenario where it matters, because dyld halts at `dyld_main → prepare() → state.add()` before your loader is entered.
+6. **Do keep the fallback path** for `shared_region_check_np` (§4.4). It is verified working and costs ~20 lines.
 
 ### Honest risk ledger
 
@@ -585,8 +443,7 @@ All under `/tmp/apex-a`.
 
 ### 9.1 `cacheresolve.c` — the resolver (verified 184/187)
 
-Key excerpt (full file on disk, ~430 lines). Header constants, the trie walker,
-and the content scan:
+Key excerpt (full file on disk, ~430 lines). Header constants, the trie walker, and the content scan:
 
 ```c
 #define CH_SR_START     0xE0
@@ -629,11 +486,8 @@ for (uint32_t i = 0; i < g_nImgs; i++) {
 }
 ```
 
-### 9.2 `syslibdemo.c` — 53/53 Syslib from content, zero undefined
 
-Standalone, `#include`-free, raw-syscall only. Full source on disk (~250 lines).
-It contains its own `ImgX` per-image cache, the same trie walker, and the exact
-`SYSLIB[]` order from `ape-m1.c` / `os_cosmo_arm64.go`:
+Standalone, `#include`-free, raw-syscall only. Full source on disk (~250 lines). It contains its own `ImgX` per-image cache, the same trie walker, and the exact `SYSLIB[]` order from `ape-m1.c` / `os_cosmo_arm64.go`:
 
 ```c
 #define CH_SR_START 0xE0
@@ -663,11 +517,8 @@ codesign -f -s - t/syslibdemo        # re-sign after byte edits
 ./t/syslibdemo
 ```
 
-### 9.3 `munge.c` — Mach-O load-command editor
 
-Ops: `show`, `name <old> <new>`, `filetype <n>`, `hdrflags <n>`, `dropdylibs`.
-This is what makes the rename experiments possible. Always `codesign -f -s -`
-after editing.
+Ops: `show`, `name <old> <new>`, `filetype <n>`, `hdrflags <n>`, `dropdylibs`. This is what makes the rename experiments possible. Always `codesign -f -s -` after editing.
 
 ### 9.4 `basefallback.c` — cache base without syscall 294
 
@@ -680,7 +531,6 @@ for (u64 a = sp & ~7UL; a < hi; a += 8) {
 }
 ```
 
-### 9.5 Other artifacts on disk
 
 | file | purpose |
 |---|---|
@@ -702,8 +552,7 @@ for (u64 a = sp & ~7UL; a < hi; a += 8) {
 
 ## 11. Reproducible confidence sweep
 
-Run from `/tmp/apex-a` after building the tools (§1). Exit code equals `argc`
-when a program runs to completion.
+Run from `/tmp/apex-a` after building the tools (§1). Exit code equals `argc` when a program runs to completion.
 
 ```
 1. header layout (3 ways):        imagesOffset=0x1c0 confirmed
@@ -717,20 +566,7 @@ when a program runs to completion.
 8. cache-base fallback:           fallback == syscall 294 result
 ```
 
-All eight verified in the final sweep. Artifacts and sources are preserved in
-`/tmp/apex-a`, and every tool rebuilds cleanly from its `.c` file.
+All eight verified in the final sweep. Artifacts and sources are preserved in `/tmp/apex-a`, and every tool rebuilds cleanly from its `.c` file.
 
 
-Content-based discovery is **not theater** — it is a correct, robust, fully
-verifiable mechanism that resolves the entire Syslib surface to callable
-addresses without a single link-time symbol, and it is the *only* approach
-indifferent to which image holds an export (which already matters, since
-`libSystem.B.dylib` exports just 3 symbols and sub-libraries hold all 53 Syblib
-entries). But it **does not save you from the stated scenario**, because the
-scenario kills dyld before your loader is reached: dyld hard-codes
-`/usr/lib/system/libdyld.dylib` and `/usr/lib/libSystem.B.dylib` with `strcmp`
-and `halt()`s when they are gone, and the kernel hard-codes `/usr/lib/dyld` with
-a SIGKILL. Build Option A for the resilience it genuinely provides —
-reorganisation immunity, zero symbol dependencies, no `dlopen` — but harden the
-*launch* path with the cheap, proven measures: a second weak dylib reference and
-`minos 11.0`. Those, not the cache parser, are what will keep you running.
+Content-based discovery is **not theater** — it is a correct, robust, fully verifiable mechanism that resolves the entire Syslib surface to callable addresses without a single link-time symbol. And it is the *only* approach indifferent to which image holds an export (which already matters, since `libSystem.B.dylib` exports just 3 symbols and sub-libraries hold all 53 Syblib entries). But it **does not save you from the stated scenario**, because the scenario kills dyld before your loader is reached: dyld hard-codes `/usr/lib/system/libdyld.dylib` and `/usr/lib/libSystem.B.dylib` with `strcmp` and `halt()`s when they are gone, and the kernel hard-codes `/usr/lib/dyld` with a SIGKILL. Build Option A for the resilience it genuinely provides — reorganisation immunity, zero symbol dependencies, no `dlopen` — but harden the *launch* path with the cheap, proven measures: a second weak dylib reference and `minos 11.0`. Those, not the cache parser, are what will keep you running.

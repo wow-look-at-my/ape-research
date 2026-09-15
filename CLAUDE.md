@@ -57,7 +57,7 @@ This directory holds scratch investigation into making the macOS loader survive 
 
 `research/dyld` is a git submodule of `apple-oss-distributions/dyld` at tag `dyld-1378`. Run `git submodule update --init` to fetch it. Every dyld citation in the reports is a path inside it. External source goes in as a submodule. Do not copy it into the tree.
 
-`research/FINDINGS.txt` holds the conclusions. `research/option-a/REPORT.md` covers content-based symbol discovery from the dyld shared cache. `research/option-b/REPORT.md` covers a minimal dependency surface.
+`research/FINDINGS.txt` holds the conclusions. `research/option-a/REPORT.txt` covers content-based symbol discovery from the dyld shared cache. `research/option-b/REPORT.txt` covers a minimal dependency surface.
 
 Key conclusions:
 
