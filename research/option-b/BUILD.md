@@ -13,11 +13,8 @@ CFLAGS="-arch arm64 -mmacosx-version-min=11.0 -O2 -ffreestanding -fno-stack-prot
 LDFLAGS="-arch arm64 -weak-lSystem -syslibroot $SDK -platform_version macos 11.0 11.0"
 ```
 
-`-ffreestanding -fno-stack-protector` keeps the compiler from emitting calls to
-`memcpy`/`__stack_chk_fail`. Any accidental libc call shows up immediately as an
-undefined symbol in `nm -u`.
+`-ffreestanding -fno-stack-protector` keeps the compiler from emitting calls to `memcpy`/`__stack_chk_fail`. Any accidental libc call shows up immediately as an undefined symbol in `nm -u`.
 
-## Zero-import binaries
 
 ```
 clang -c $CFLAGS -o X.o X.c
@@ -26,9 +23,7 @@ ld $LDFLAGS -e _main -o X X.o rs_syscall.o
 nm -u X          # must print nothing
 ```
 
-Note: if a `main` is not the entry you want, `-e _start` plus an assembly stub
-(see `appleentry.s` / `entrycap.s` in the transcript) is how the LC_MAIN x3
-"apple vector" was captured.
+Note: if a `main` is not the entry you want, `-e _start` plus an assembly stub (see `appleentry.s` / `entrycap.s` in the transcript) is how the LC_MAIN x3 "apple vector" was captured.
 
 ## The decisive resolver
 
@@ -40,8 +35,7 @@ nm -u zfinal     # empty
 ./zfinal
 ```
 
-Slow (naive) variants: `tbase`, `zres2`, `zres3`. The tuned one is `zfinal`
-(prefix pruning + cache image table).
+Slow (naive) variants: `tbase`, `zres2`, `zres3`. The tuned one is `zfinal` (prefix pruning + cache image table).
 
 ## Drop-in dlsym
 
@@ -51,7 +45,6 @@ ld $LDFLAGS -e _main -o mydlsym mydlsym.o rs_syscall.o
 ./mydlsym
 ```
 
-## Ground-truth comparison (libc-linked, not zero-import)
 
 ```
 clang -arch arm64 -mmacosx-version-min=11.0 -O1 -o verify verify.c
@@ -78,8 +71,7 @@ D: -weak-lMacos -weak-lNope     (two weak, both absent)     -> SIGABRT
 E: -weak-lMacos -lSystem        (weak absent + strong real) -> runs
 ```
 
-Rename a dylib install-name in place (keep the byte length identical, then
-re-sign — editing bytes invalidates the signature and the kernel SIGKILLs it):
+Rename a dylib install-name in place (keep the byte length identical, then re-sign — editing bytes invalidates the signature and the kernel SIGKILLs it):
 
 ```
 codesign -f -s - <file>
