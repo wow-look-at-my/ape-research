@@ -95,3 +95,13 @@ Wall time of `probe.com hello`, output discarded. The shell columns are the firs
 On Windows nothing is staged, so the stock PE boot and the in-memory loader are one measurement each. The stock boot takes 23 to 26 ms. The loader takes 7 to 9 ms. It wins because it never maps the file as an image.
 
 The macOS shell numbers are with the compiled `ape-m1` already cached under `/tmp`. The first run on a fresh machine also pays for `cc`, about a second on these runners.
+
+## Adopted by gosmopolitan
+
+gosmopolitan vendors `linux/apeld.c`, `darwin/apeld.c` and the three `bin/` binaries under `src/cmd/link/internal/ld/apeld`. Its bootstrap script stages no copy of the program on Linux, and it runs `cc` nowhere on macOS arm64. It searches for a loader the host carries, in `$APE_LOADER`, a dot-prefixed sibling of the binary, `/usr/local/lib/ape`, `/usr/lib/ape` and `PATH`. A host that has one starts an APE without writing anything, which is what a read-only root needs.
+
+A host that has none unpacks the loader the APE embeds. The linker stores the Linux loaders raw at `0x2800` and `0x2c00`, and the darwin loader gzipped at `0x8000`. On linux/amd64 the unpack writes the `apeld-linux-amd64` in the sizes table above, once per machine. A staged copy wrote the whole program, per binary.
+
+Measured with `/tmp`, the program's directory and `/usr/local/lib/ape` all mounted read-only in a private mount namespace: the staged copy dies with `APE: cannot create /tmp/.ape-run-1-0/...`, and the loader boot runs.
+
+windows/amd64 needs nothing, as this repo already found. darwin/amd64 has no loader here, so it still stages a copy. It is not in `cosmoape.Default()`, and no Intel-mac runner exists to verify one.
