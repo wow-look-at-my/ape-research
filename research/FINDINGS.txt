@@ -5,7 +5,9 @@ Scope: Apple arm64 only. Linux and Windows loaders are untouched.
 Two parallel investigations were run (Option A: content-based discovery;
 Option B: minimal dependency surface), plus direct verification of the
 load-bearing claims. Everything below was measured on macOS 26.5 / Apple M5
-unless noted. Claims sourced from Apple's published code are cited by file.
+unless noted. Claims sourced from Apple's published code are cited by file,
+relative to the research/dyld submodule (apple-oss-distributions/dyld, tag
+dyld-1378).
 
 ---
 

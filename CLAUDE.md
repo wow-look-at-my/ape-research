@@ -53,7 +53,9 @@ CI also asserts linkage. Linux loaders have no INTERP or dynamic section. The PE
 
 ## research/
 
-This directory holds scratch investigation into making the macOS loader survive hostile Apple changes. It contains many committed probe binaries and `.o` files. It also has a vendored copy of Apple's dyld source in `research/option-a/ds/`. Neither `build.sh` nor CI builds it.
+This directory holds scratch investigation into making the macOS loader survive hostile Apple changes. It holds probe sources only. Neither `build.sh` nor CI builds it.
+
+`research/dyld` is a git submodule of `apple-oss-distributions/dyld` at tag `dyld-1378`. Run `git submodule update --init` to fetch it. Every dyld citation in the reports is a path inside it. External source goes in as a submodule. Do not copy it into the tree.
 
 `research/FINDINGS.txt` holds the conclusions. `research/option-a/REPORT.md` covers content-based symbol discovery from the dyld shared cache. `research/option-b/REPORT.md` covers a minimal dependency surface.
 

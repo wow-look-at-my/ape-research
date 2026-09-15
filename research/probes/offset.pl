@@ -2,8 +2,9 @@
 # offset.pl - compute struct field offsets from Apple's dyld_cache_format.h
 # so we never guess a layout again. Sums field sizes in declaration order.
 use strict; use warnings;
+use FindBin;
 
-my $file = shift // '/tmp/apex/dc.h';
+my $file = shift // "$FindBin::Bin/../dyld/include/mach-o/dyld_cache_format.h";
 open my $fh, '<', $file or die "open $file: $!";
 my @lines = <$fh>; close $fh;
 

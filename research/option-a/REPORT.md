@@ -255,7 +255,7 @@ These are real, measured, and I could not defeat them.
 verified this in the source rather than guessing:
 
 ```
-ds/dyld-main/dyld/DyldRuntimeState.cpp:467-470
+research/dyld/dyld/DyldRuntimeState.cpp:467-470
     if ( strcmp(installName, "/usr/lib/system/libdyld.dylib") == 0 )
         setDyldLoader(ldr);
     else if ( strcmp(installName, "/usr/lib/libSystem.B.dylib") == 0 )
@@ -277,7 +277,7 @@ load commands, *synthesizes* a libSystem dependency — but it synthesizes it **
 the literal string**:
 
 ```
-ds/dyld-main/mach_o/UnsafeHeader.cpp:1403-1422
+research/dyld/mach_o/UnsafeHeader.cpp:1403-1422
     if ( (count == 0) && !stopped ) {
         // The dylibs that make up libSystem can link with nothing
         ...
