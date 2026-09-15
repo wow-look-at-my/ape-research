@@ -1,0 +1,37 @@
+--- class scan (x16 raw) ---
+x16=0 SIGNAL=12
+x16=1 
+x16=2 classnum=2 rc=50915
+classnum=2 rc=50915
+x16=3 classnum=3 rc=0
+x16=4 classnum=4 rc=-9
+x16=5 classnum=5 rc=-14
+x16=6 classnum=6 rc=0
+x16=7 classnum=7 rc=-10
+x16=8 classnum=8 rc=-78
+x16=9 classnum=9 rc=-14
+x16=10 classnum=a rc=-14
+x16=11 classnum=b rc=-78
+x16=12 classnum=c rc=-14
+x16=13 classnum=d rc=-20
+x16=14 classnum=e rc=-1
+x16=15 classnum=f rc=-14
+x16=16 classnum=10 rc=-14
+x16=17 classnum=11 rc=-78
+x16=18 classnum=12 rc=14
+x16=19 classnum=13 rc=-78
+x16=20 classnum=14 rc=50969
+x16=21 classnum=15 rc=-78
+x16=22 classnum=16 rc=-78
+x16=23 classnum=17 rc=-1
+x16=24 classnum=18 rc=501
+x16=25 classnum=19 rc=501
+x16=26 classnum=1a rc=-1
+x16=27 classnum=1b rc=-14
+x16=28 classnum=1c rc=-14
+x16=29 classnum=1d rc=-38
+x16=30 classnum=1e rc=-38
+x16=101:  exit=140
+x16=9999:  exit=140
+x16=0x2000014: classnum=2000014 rc=51008
+x16=0x1000014: classnum=1000014 rc=51011
