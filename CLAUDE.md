@@ -53,6 +53,10 @@ CI also asserts linkage. Linux loaders have no INTERP or dynamic section. The PE
 
 ## Repository contents
 
-The tree holds only loader sources, build files, tests and docs. Do not commit probes, scratch programs or build outputs other than `bin/`. External source goes in as a git submodule, never as a copy.
+The tree holds loader sources, build files, tests, docs and the macOS research record. Do not commit probes, scratch programs or build outputs other than `bin/`. External source goes in as a git submodule, never as a copy.
 
-The macOS zero-import loader research (`research/probes/apeld2.c`, `research/FINDINGS.txt`) lives in git history at commit 1785223.
+## research/
+
+`research/FINDINGS.txt` holds the conclusions of the macOS hardening research. `research/option-a/REPORT.txt` covers content-based symbol discovery from the dyld shared cache. `research/option-b/REPORT.txt` covers a minimal dependency surface. `research/probes/apeld2.c` is the zero-import macOS loader port. `darwin/apeld.c` does not use it. The probe programs the reports cite are in git history at commit 1785223.
+
+`research/dyld` is a git submodule of `apple-oss-distributions/dyld` at tag `dyld-1378`. Run `git submodule update --init` to fetch it. The dyld citations in the reports are paths inside it.
