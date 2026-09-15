@@ -4,6 +4,10 @@ on:
   push:
     branches: ['**']
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   actions: read
@@ -26,10 +30,11 @@ jobs:
       - name: Build loaders
         run: |
           sudo apt-get install -y -q lld-18 llvm-18 >/dev/null
-          cp -r bin "$RUNNER_TEMP/committed"
+          mv bin "$RUNNER_TEMP/committed"
           LLD=ld64.lld-18 LLDLINK=lld-link-18 DLLTOOL=llvm-dlltool-18 STRIP=llvm-strip-18 ./build.sh
       - name: Committed binaries match the source
         run: |
+          diff <(ls "$RUNNER_TEMP/committed") <(ls bin)
           for f in bin/*; do
             cmp "$f" "$RUNNER_TEMP/committed/$(basename "$f")" && continue
             echo "== $f differs from the committed copy (offset, committed byte, built byte):"
@@ -71,7 +76,6 @@ jobs:
   linux:
     needs: build
     strategy:
-      fail-fast: false
       matrix:
         include:
           - {os: ubuntu-22.04, arch: amd64}
@@ -118,7 +122,6 @@ jobs:
   macos:
     needs: build
     strategy:
-      fail-fast: false
       matrix:
         os: [macos-14, macos-15, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -152,7 +155,6 @@ jobs:
   windows:
     needs: build
     strategy:
-      fail-fast: false
       matrix:
         os: [windows-2022, windows-2025, windows-latest]
     runs-on: ${{ matrix.os }}
