@@ -51,17 +51,8 @@ On Linux CI, dats itself is an APE. The stock shell cannot boot it on 22.04 or a
 
 CI also asserts linkage. Linux loaders have no INTERP or dynamic section. The PE imports only `kernel32.dll`. The Mach-O loads only libSystem.
 
-## research/
+## Repository contents
 
-This directory holds scratch investigation into making the macOS loader survive hostile Apple changes. It holds probe sources only. Neither `build.sh` nor CI builds it.
+The tree holds only loader sources, build files, tests and docs. Do not commit probes, scratch programs or build outputs other than `bin/`. External source goes in as a git submodule, never as a copy.
 
-`research/dyld` is a git submodule of `apple-oss-distributions/dyld` at tag `dyld-1378`. Run `git submodule update --init` to fetch it. Every dyld citation in the reports is a path inside it. External source goes in as a submodule. Do not copy it into the tree.
-
-`research/FINDINGS.txt` holds the conclusions. `research/option-a/REPORT.txt` covers content-based symbol discovery from the dyld shared cache. `research/option-b/REPORT.txt` covers a minimal dependency surface.
-
-Key conclusions:
-
-- Raw `svc #0x80` works. Only class-0 syscalls raise SIGSYS.
-- dyld requires the literal libSystem and libdyld install names. Rename immunity is disproven.
-- A binary with `minos` 15.3 or lower can have zero dylib load commands.
-- A zero-import port exists as `research/probes/apeld2.c`. `darwin/apeld.c` does not use it yet.
+The macOS zero-import loader research (`research/probes/apeld2.c`, `research/FINDINGS.txt`) lives in git history at commit 1785223.

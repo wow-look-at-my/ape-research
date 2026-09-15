@@ -1,3 +1,0 @@
-[submodule "research/dyld"]
-	path = research/dyld
-	url = https://github.com/apple-oss-distributions/dyld.git
