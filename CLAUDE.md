@@ -12,7 +12,7 @@ Smallest-possible native loaders for Actually Portable Executables (APE) built b
 ./build.sh
 ```
 
-`build.sh` builds all four loaders into `bin/` with `zig cc`. CI pins zig 0.16.0. Env vars override the tool names: `ZIG`, `LLD` (ld64.lld), `LLDLINK` (lld-link), `DLLTOOL` (llvm-dlltool), `STRIP` (llvm-strip). CI runs `LLD=ld64.lld-18 LLDLINK=lld-link-18 DLLTOOL=llvm-dlltool-18 STRIP=llvm-strip-18 ./build.sh`.
+`build.sh` builds every loader into `bin/` with `zig cc`. CI pins zig 0.16.0. Env vars override the tool names: `ZIG`, `LLD` (ld64.lld), `LLDLINK` (lld-link), `DLLTOOL` (llvm-dlltool), `STRIP` (llvm-strip). CI runs `LLD=ld64.lld-18 LLDLINK=lld-link-18 DLLTOOL=llvm-dlltool-18 STRIP=llvm-strip-18 ./build.sh`.
 
 **The binaries in `bin/` are committed and must be byte-reproducible.** CI rebuilds them and fails if one byte differs from the committed copy. A change to `*/apeld.c`, `linux/apeld.ld`, `windows/kernel32.def` or the `build.sh` flags must commit the rebuilt `bin/` output too. Size is a tracked metric. The sizes table in `README.txt` and the step tables in `LOG.txt` record it.
 
@@ -20,7 +20,7 @@ Per-platform link pipelines (`LOG.txt` records why each was chosen):
 
 - Linux: freestanding, `-nostdlib`, raw syscalls. The linker script `linux/apeld.ld` packs one PT_LOAD. Then `llvm-strip --strip-sections` removes the section header table.
 - macOS arm64: zig compiles the object and `ld64.lld -no_data_const` links it against zig's bundled `libSystem.tbd`. zig's own Mach-O linker cannot merge `__DATA_CONST`. Each extra segment costs a 16K page. The ad-hoc signature identifier is the output basename. The output name must stay fixed.
-- Windows: zig compiles and `lld-link /Brepro` links against an import lib made from `windows/kernel32.def`. zig's own link adds a non-reproducible PDB record. A `/filealign` below 512 makes Windows reject the PE. Wine still runs it.
+- Windows: zig compiles and `lld-link /Brepro` links against an import lib made from `windows/kernel32.def`. zig's own link adds a non-reproducible PDB record. A `/filealign` below the 512-byte sector size makes Windows reject the PE. Wine still runs it.
 
 ## Tests
 
@@ -37,9 +37,9 @@ APELD=bin/apeld-linux-amd64 dats -v test tests/linux-amd64.dats
 dats -v --no-sandbox test tests/windows-amd64.dats
 ```
 
-The Linux suites read the loader path from `$APELD`. The darwin and windows suites hardcode `bin/...`. Each suite includes the stock shell or PE boot as a baseline. The probe prints `args=`, `exe=`, `cwd=`, `env=` (from `APE_PROBE_ENV`) and `goos=`/`goarch=`. It exits 3 when its first arg is `fail`. Loader errors go to stderr with the prefix `apeld: ` and exit 127.
+The Linux suites read the loader path from `$APELD`. The darwin and windows suites hardcode `bin/...`. Each suite includes the stock shell or PE boot as a baseline. The probe prints `args=`, `exe=`, `cwd=`, `env=` (from `APE_PROBE_ENV`) and `goos=`/`goarch=`. It exits with status `3` when its first arg is `fail`. Loader errors go to stderr with the prefix `apeld: ` and exit 127.
 
-On Linux CI, dats itself is an APE. The stock shell cannot boot it on 22.04 or arm64. CI therefore boots dats through the loader under test. The CI matrix in `.github/workflows/ci.yml` is the real verification. It covers ubuntu 22.04 and 24.04 on amd64 and arm64. It also covers macOS 14, 15 and latest plus Windows 2022, 2025 and latest. qemu-user cannot `execveat` a memfd. The Linux arm64 loader therefore has no local test.
+On Linux CI, dats itself is an APE. The stock shell cannot boot it on 22.04 or arm64. CI therefore boots dats through the loader under test. The CI matrix in `.github/workflows/ci.yml` is the real verification. It covers ubuntu, macOS and Windows runner versions on amd64 and arm64. qemu-user cannot `execveat` a memfd. The Linux arm64 loader therefore has no local test.
 
 ## APE layout facts every loader relies on
 
