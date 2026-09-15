@@ -12,7 +12,7 @@ Smallest-possible native loaders for Actually Portable Executables (APE) built b
 ./build.sh
 ```
 
-`build.sh` builds all four loaders into `bin/` with `zig cc`. CI pins zig 0.16.0. Env vars override the tool names: `ZIG`, `LLD` (ld64.lld), `LLDLINK` (lld-link), `DLLTOOL` (llvm-dlltool), `STRIP` (llvm-strip). CI runs `LLD=ld64.lld-18 LLDLINK=lld-link-18 DLLTOOL=llvm-dlltool-18 STRIP=llvm-strip-18 ./build.sh`.
+`build.sh` builds every loader into `bin/` with `zig cc`. CI pins zig 0.16.0. Env vars override the tool names: `ZIG`, `LLD` (ld64.lld), `LLDLINK` (lld-link), `DLLTOOL` (llvm-dlltool), `STRIP` (llvm-strip). CI runs `LLD=ld64.lld-18 LLDLINK=lld-link-18 DLLTOOL=llvm-dlltool-18 STRIP=llvm-strip-18 ./build.sh`.
 
 **The binaries in `bin/` are committed and must be byte-reproducible.** CI rebuilds them and fails if one byte differs from the committed copy. A change to `*/apeld.c`, `linux/apeld.ld`, `windows/kernel32.def` or the `build.sh` flags must commit the rebuilt `bin/` output too. Size is a tracked metric. The sizes table in `README.txt` and the step tables in `LOG.txt` record it.
 
@@ -20,7 +20,7 @@ Per-platform link pipelines (`LOG.txt` records why each was chosen):
 
 - Linux: freestanding, `-nostdlib`, raw syscalls. The linker script `linux/apeld.ld` packs one PT_LOAD. Then `llvm-strip --strip-sections` removes the section header table.
 - macOS arm64: zig compiles the object and `ld64.lld -no_data_const` links it against zig's bundled `libSystem.tbd`. zig's own Mach-O linker cannot merge `__DATA_CONST`. Each extra segment costs a 16K page. The ad-hoc signature identifier is the output basename. The output name must stay fixed.
-- Windows: zig compiles and `lld-link /Brepro` links against an import lib made from `windows/kernel32.def`. zig's own link adds a non-reproducible PDB record. A `/filealign` below 512 makes Windows reject the PE. Wine still runs it.
+- Windows: zig compiles and `lld-link /Brepro` links against an import lib made from `windows/kernel32.def`. zig's own link adds a non-reproducible PDB record. A `/filealign` below the 512-byte sector size makes Windows reject the PE. Wine still runs it.
 
 ## Tests
 
@@ -37,9 +37,9 @@ APELD=bin/apeld-linux-amd64 dats -v test tests/linux-amd64.dats
 dats -v --no-sandbox test tests/windows-amd64.dats
 ```
 
-The Linux suites read the loader path from `$APELD`. The darwin and windows suites hardcode `bin/...`. Each suite includes the stock shell or PE boot as a baseline. The probe prints `args=`, `exe=`, `cwd=`, `env=` (from `APE_PROBE_ENV`) and `goos=`/`goarch=`. It exits 3 when its first arg is `fail`. Loader errors go to stderr with the prefix `apeld: ` and exit 127.
+The Linux suites read the loader path from `$APELD`. The darwin and windows suites hardcode `bin/...`. Each suite includes the stock shell or PE boot as a baseline. The probe prints `args=`, `exe=`, `cwd=`, `env=` (from `APE_PROBE_ENV`) and `goos=`/`goarch=`. It exits with status `3` when its first arg is `fail`. Loader errors go to stderr with the prefix `apeld: ` and exit 127.
 
-On Linux CI, dats itself is an APE. The stock shell cannot boot it on 22.04 or arm64. CI therefore boots dats through the loader under test. The CI matrix in `.github/workflows/ci.yml` is the real verification. It covers ubuntu 22.04 and 24.04 on amd64 and arm64. It also covers macOS 14, 15 and latest plus Windows 2022, 2025 and latest. qemu-user cannot `execveat` a memfd. The Linux arm64 loader therefore has no local test.
+On Linux CI, dats itself is an APE. The stock shell cannot boot it on 22.04 or arm64. CI therefore boots dats through the loader under test. The CI matrix in `.github/workflows/ci.yml` is the real verification. It covers ubuntu, macOS and Windows runner versions on amd64 and arm64. qemu-user cannot `execveat` a memfd. The Linux arm64 loader therefore has no local test.
 
 ## APE layout facts every loader relies on
 
@@ -51,17 +51,12 @@ On Linux CI, dats itself is an APE. The stock shell cannot boot it on 22.04 or a
 
 CI also asserts linkage. Linux loaders have no INTERP or dynamic section. The PE imports only `kernel32.dll`. The Mach-O loads only libSystem.
 
+## Repository contents
+
+The tree holds loader sources, build files, tests, docs and the macOS research record. Do not commit probes, scratch programs or build outputs other than `bin/`. External source goes in as a git submodule, never as a copy.
+
 ## research/
 
-This directory holds scratch investigation into making the macOS loader survive hostile Apple changes. It holds probe sources only. Neither `build.sh` nor CI builds it.
+`research/FINDINGS.txt` holds the conclusions of the macOS hardening research. `research/option-a/REPORT.txt` covers content-based symbol discovery from the dyld shared cache. `research/option-b/REPORT.txt` covers a minimal dependency surface. `research/probes/apeld2.c` is the zero-import macOS loader port. `darwin/apeld.c` does not use it. The probe programs the reports cite are in git history at commit 1785223.
 
-`research/dyld` is a git submodule of `apple-oss-distributions/dyld` at tag `dyld-1378`. Run `git submodule update --init` to fetch it. Every dyld citation in the reports is a path inside it. External source goes in as a submodule. Do not copy it into the tree.
-
-`research/FINDINGS.txt` holds the conclusions. `research/option-a/REPORT.txt` covers content-based symbol discovery from the dyld shared cache. `research/option-b/REPORT.txt` covers a minimal dependency surface.
-
-Key conclusions:
-
-- Raw `svc #0x80` works. Only class-0 syscalls raise SIGSYS.
-- dyld requires the literal libSystem and libdyld install names. Rename immunity is disproven.
-- A binary with `minos` 15.3 or lower can have zero dylib load commands.
-- A zero-import port exists as `research/probes/apeld2.c`. `darwin/apeld.c` does not use it yet.
+`research/dyld` is a git submodule of `apple-oss-distributions/dyld` at tag `dyld-1378`. Run `git submodule update --init` to fetch it. The dyld citations in the reports are paths inside it.
