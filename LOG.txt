@@ -95,3 +95,25 @@ Wall time of `probe.com hello`, output discarded. The shell columns are the firs
 On Windows nothing is staged, so the stock PE boot and the in-memory loader are one measurement each. The stock boot takes 23 to 26 ms. The loader takes 7 to 9 ms. It wins because it never maps the file as an image.
 
 The macOS shell numbers are with the compiled `ape-m1` already cached under `/tmp`. The first run on a fresh machine also pays for `cc`, about a second on these runners.
+
+## Adopted by gosmopolitan
+
+gosmopolitan vendors `linux/apeld.c`, `darwin/apeld.c` and the three `bin/` binaries under `src/cmd/link/internal/ld/apeld`. Its bootstrap script stages no copy of the program on Linux, and it runs `cc` nowhere on macOS arm64. It searches for a loader the host carries, in `$APE_LOADER`, a dot-prefixed sibling of the binary, `/usr/local/lib/ape`, `/usr/lib/ape` and `PATH`. A host that has one starts an APE without writing anything, which is what a read-only root needs.
+
+A host that has none unpacks the loader the APE embeds. The linker stores the Linux loaders raw at `0x2800` and `0x2c00`, and the darwin loader gzipped at `0x8000`. On linux/amd64 the unpack writes the `apeld-linux-amd64` in the sizes table above, once per machine. A staged copy wrote the whole program, per binary.
+
+Measured with `/tmp`, the program's directory and `/usr/local/lib/ape` all mounted read-only in a private mount namespace: the staged copy dies with `APE: cannot create /tmp/.ape-run-1-0/...`, and the loader boot runs.
+
+windows/amd64 needs nothing, as this repo already found. gosmopolitan dropped darwin/amd64 outright rather than keep the one platform that had to copy the program: XNU reads the Mach-O header at offset 0, and an APE cannot carry it there.
+
+## binfmt_misc holds the loader by descriptor
+
+The loader still has to reach the host somehow, and unpacking it is a write. `binfmt_misc` removes even that, on Linux.
+
+An entry registered with the `F` flag is opened at registration time. The kernel keeps the descriptor and spawns the interpreter from it, so the path it was registered under stops deciding anything afterwards.
+
+Measured on Linux 6.18: register `:APE:M::MZqFpD='::<loader>:F`, delete the loader file, then mount `/tmp`, the program's directory and `/usr/local/lib` read-only in a private mount namespace. `execve` of the APE still boots the payload. No shell runs, no loader file exists, and nothing is writable.
+
+The register file is in procfs, so a read-only disk does not stop the registration either. Root does. gosmopolitan's boot script now takes the registration whenever it can, from whichever loader it found.
+
+macOS has no equivalent. There the zero-write boot needs a loader the host already carries.
