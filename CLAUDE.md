@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Smallest-possible native loaders for Actually Portable Executables (APE) built by [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan). There is one loader per platform, each a single C file. Usage is `apeld PROG.com [args...]`. `README.txt` is the overview. It is markdown despite the name. `LOG.txt` is the chronological research log with size and timing tables. `README.md` only points at those two.
+Smallest-possible native loaders for Actually Portable Executables (APE) built by [gosmopolitan](https://github.com/wow-look-at-my/gosmopolitan). There is one loader per platform, each a single C file. Usage is `apeld [-u] PROG.com [args...]`, where `-u` makes the loader unlink its own file before the payload starts. `README.txt` is the overview. It is markdown despite the name. `LOG.txt` is the chronological research log with size and timing tables. `README.md` only points at those two.
 
 ## Build
 
@@ -45,7 +45,7 @@ On Linux CI, dats itself is an APE. The stock shell cannot boot it on 22.04 or a
 
 - Each payload is a complete ELF on a `0x10000` boundary, amd64 first. Loaders scan 64K offsets for an ELF header with the host `e_machine`. They parse no shell script.
 - The payload's program headers already carry absolute file offsets into the APE. Only its own `e_phoff` is payload-relative.
-- Linux (`linux/apeld.c`) copies the whole file into a memfd. It writes the payload's 64-byte ELF header over offset 0, with `e_phoff` rebased by the payload offset. Then it calls `execveat` with `AT_EMPTY_PATH`. A custom `_start` stub replaces libc. Cost: `os.Executable()` returns `/memfd:NAME`.
+- Linux (`linux/apeld.c`) copies the whole file into a memfd. It writes the payload's 64-byte ELF header over offset 0, with `e_phoff` rebased by the payload offset. Then it calls `execveat` with `AT_EMPTY_PATH`. A custom `_start` stub replaces libc. Cost: `/proc/self/exe` reads back `/memfd:NAME`. A runtime that resolves `argv[0]` reports the APE's own path instead, which is what gosmopolitan does.
 - macOS arm64 (`darwin/apeld.c`) maps the PT_LOAD segments itself. Text goes into anonymous RW memory and then gets `mprotect`ed. W^X is enforced. An executable file mapping also triggers whole-file hashing. The loader refuses a load range that holds live memory. `MAP_FIXED` replaces live memory in silence. It builds a Linux-shaped stack and auxv with no `AT_HWCAP` on purpose. It jumps with `x3 = 8` (XNU), `x15 = &Syslib` and `x16 = entry`. The Syslib has magic `"slib"` and version 10. Its field order is an ABI with the gosmopolitan runtime. Do not reorder it. Syscall-shaped entries return `-errno`.
 - Windows (`windows/apeld.c`) has no CRT and imports only kernel32. It places the amd64 payload at its fixed base `0x100000000` with `VirtualAlloc`. It resolves the import descriptor by hand. The runtime boots through the `GetProcAddress` and `LoadLibraryA` IAT slots. The loader sets protections and rewrites the process command line in place. Then `os.Args` starts at the program. Finally it calls the entry. Cost: `os.Executable()` returns the loader's path.
 
