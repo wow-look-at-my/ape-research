@@ -52,12 +52,15 @@ tests:
 
 	# A caller that unpacked a throwaway copy passes -u, so an APE leaves no
 	# second file behind. The copy goes before the payload starts.
+	# Each case keeps its copy in a directory of its own. These tests run at the
+	# same time, and one -u run deletes any path the other one shares.
 	- desc: -u removes the loader's own file, and still runs the program
 	  cmd: |
-		cp "$APELD" "$TMPDIR/ld"
-		chmod 755 "$TMPDIR/ld"
-		"$TMPDIR/ld" -u out/probe.com
-		test ! -e "$TMPDIR/ld" || { echo "the loader survived -u" >&2; exit 1; }
+		mkdir -p "$TMPDIR/u"
+		cp "$APELD" "$TMPDIR/u/ld"
+		chmod 755 "$TMPDIR/u/ld"
+		"$TMPDIR/u/ld" -u out/probe.com
+		test ! -e "$TMPDIR/u/ld" || { echo "the loader survived -u" >&2; exit 1; }
 	  exit: 0
 	  outputs:
 		stdout:
@@ -67,10 +70,11 @@ tests:
 	# run, so the removal can never be the default.
 	- desc: no -u leaves the loader where it is
 	  cmd: |
-		cp "$APELD" "$TMPDIR/ld"
-		chmod 755 "$TMPDIR/ld"
-		"$TMPDIR/ld" out/probe.com
-		test -e "$TMPDIR/ld" || { echo "the loader was removed without -u" >&2; exit 1; }
+		mkdir -p "$TMPDIR/keep"
+		cp "$APELD" "$TMPDIR/keep/ld"
+		chmod 755 "$TMPDIR/keep/ld"
+		"$TMPDIR/keep/ld" out/probe.com
+		test -e "$TMPDIR/keep/ld" || { echo "the loader was removed without -u" >&2; exit 1; }
 	  exit: 0
 	  outputs:
 		stdout:
