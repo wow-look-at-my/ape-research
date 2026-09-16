@@ -1,0 +1,3 @@
+# The probe APE the suites need. CLAUDE.md keeps build output out of the tree,
+# and bin/ is the one exception because its size is tracked.
+out/

@@ -21,8 +21,10 @@ The reference APEs come from [wow-look-at-my/gosmopolitan](https://github.com/wo
 Usage is the same everywhere:
 
 ```
-apeld PROG.com [args...]
+apeld [-u] PROG.com [args...]
 ```
+
+`-u` removes the loader's own file before the payload starts. A caller that unpacked a throwaway copy of the loader passes it, so the program leaves no second file on the host. A loader somebody installed is called without it and stays where it is. The flag is argv rather than an environment variable on purpose: an environment variable reaches the payload, and a nested run could then delete an installed loader.
 
 `build.sh` builds all four with `zig cc`. The binaries are committed so their size is tracked in history. CI rebuilds them and fails when the committed bytes differ.
 
@@ -30,9 +32,9 @@ apeld PROG.com [args...]
 
 | loader | bytes |
 |---|---|
-| apeld-linux-amd64 | 816 |
-| apeld-linux-arm64 | 923 |
-| apeld-darwin-arm64 | 36944 |
+| apeld-linux-amd64 | 892 |
+| apeld-linux-arm64 | 1024 |
+| apeld-darwin-arm64 | 36992 |
 | apeld-windows-amd64.exe | 3584 |
 
 ## What the APE layout gives a native loader

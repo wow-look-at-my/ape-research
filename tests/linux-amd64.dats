@@ -17,7 +17,10 @@ tests:
 	  outputs:
 		stdout:
 			- 'args=["out/probe.com" "hello" "world"]'
-			- 'exe="/memfd:probe.com" exeErr=<nil>'
+			# The loader execs a memfd, so /proc/self/exe reads back its name.
+			# A runtime that resolves argv[0] instead reports the APE's own
+			# path. Both are this loader working, so assert what they share.
+			- 'probe.com" exeErr=<nil>'
 			- 'env="yes"'
 			- 'goos=linux goarch=amd64'
 		stderr: []
@@ -46,3 +49,33 @@ tests:
 	  outputs:
 		stderr:
 			- 'no payload for this machine'
+
+	# A caller that unpacked a throwaway copy passes -u, so an APE leaves no
+	# second file behind. The copy goes before the payload starts.
+	# Each case keeps its copy in a directory of its own. These tests run at the
+	# same time, and one -u run deletes any path the other one shares.
+	- desc: -u removes the loader's own file, and still runs the program
+	  cmd: |
+		mkdir -p "$TMPDIR/u"
+		cp "$APELD" "$TMPDIR/u/ld"
+		chmod 755 "$TMPDIR/u/ld"
+		"$TMPDIR/u/ld" -u out/probe.com
+		test ! -e "$TMPDIR/u/ld" || { echo "the loader survived -u" >&2; exit 1; }
+	  exit: 0
+	  outputs:
+		stdout:
+			- 'goos=linux goarch=amd64'
+
+	# Without it the file stays. A loader somebody installed must survive every
+	# run, so the removal can never be the default.
+	- desc: no -u leaves the loader where it is
+	  cmd: |
+		mkdir -p "$TMPDIR/keep"
+		cp "$APELD" "$TMPDIR/keep/ld"
+		chmod 755 "$TMPDIR/keep/ld"
+		"$TMPDIR/keep/ld" out/probe.com
+		test -e "$TMPDIR/keep/ld" || { echo "the loader was removed without -u" >&2; exit 1; }
+	  exit: 0
+	  outputs:
+		stdout:
+			- 'goos=linux goarch=amd64'

@@ -38,3 +38,35 @@ tests:
 	  outputs:
 		stderr:
 			- 'no arm64 payload'
+
+	# This host has no tmpfs, so a caller that unpacks a throwaway loader puts
+	# it on a disk. -u takes it off again before the payload starts. XNU refuses
+	# exec through /dev/fd, so unlinking first is not available here.
+	# Each case keeps its copy in a directory of its own. These tests run at the
+	# same time, and one -u run deletes any path the other one shares. The
+	# basename stays as it is, because the ad-hoc signature names the file.
+	- desc: -u removes the loader's own file, and still runs the program
+	  cmd: |
+		mkdir -p "$TMPDIR/u"
+		cp bin/apeld-darwin-arm64 "$TMPDIR/u/apeld-darwin-arm64"
+		chmod 755 "$TMPDIR/u/apeld-darwin-arm64"
+		"$TMPDIR/u/apeld-darwin-arm64" -u out/probe.com
+		test ! -e "$TMPDIR/u/apeld-darwin-arm64" || { echo "the loader survived -u" >&2; exit 1; }
+	  exit: 0
+	  outputs:
+		stdout:
+			- 'goos=darwin goarch=arm64'
+
+	# Without it the file stays. A loader somebody installed must survive every
+	# run, so the removal can never be the default.
+	- desc: no -u leaves the loader where it is
+	  cmd: |
+		mkdir -p "$TMPDIR/keep"
+		cp bin/apeld-darwin-arm64 "$TMPDIR/keep/apeld-darwin-arm64"
+		chmod 755 "$TMPDIR/keep/apeld-darwin-arm64"
+		"$TMPDIR/keep/apeld-darwin-arm64" out/probe.com
+		test -e "$TMPDIR/keep/apeld-darwin-arm64" || { echo "the loader was removed without -u" >&2; exit 1; }
+	  exit: 0
+	  outputs:
+		stdout:
+			- 'goos=darwin goarch=arm64'
